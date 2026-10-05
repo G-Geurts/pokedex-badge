@@ -1,0 +1,10 @@
+deployments:
+  environmentMapping:
+    development:
+      - 'test-pr'
+    testing:
+      - 'test'
+    staging:
+      - 'uat'
+    production:
+      - 'prod'

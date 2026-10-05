@@ -1,0 +1,70 @@
+{
+    "name": "garance-domain-pokedex-gauvain",
+    "version": "0.1.0",
+    "description": "pokedex-gauvain domain",
+    "private": true,
+    "type": "module",
+    "engines": {
+        "node": ">=24"
+    },
+    "scripts": {
+        "get-name": "echo $npm_package_name",
+        "get-version": "echo $npm_package_version",
+        "clean": "rm -rf dist .aws-sam",
+        "typecheck": "tsc -p . --noEmit",
+        "lint": "eslint src/ test/",
+        "lint:fix": "eslint --fix src/ test/",
+        "pretest": "npm run lint",
+        "test": "jest --coverage --passWithNoTests",
+        "test:e2e": "E2E_RUN=true jest --testPathPatterns='test/integration/pokemon.test.ts' --runInBand",
+        "test:benchmark": "E2E_RUN=true jest --testPathPatterns='test/integration/pokemon.benchmark.test.ts' --runInBand",
+        "docs:generate": "garance-docs generate",
+        "docs:check": "garance-docs check",
+        "prepare": "husky || true"
+    },
+    "license": "ISC",
+    "prettier": "@garance-retraite/prettier-config",
+    "jest": {
+        "preset": "@garance-retraite/jest-preset",
+        "moduleNameMapper": {
+            "^@domain/(.*)$": "<rootDir>/src/domain/$1",
+            "^@application/(.*)$": "<rootDir>/src/application/$1",
+            "^@adapters/(.*)$": "<rootDir>/src/adapters/$1",
+            "^@infrastructure/(.*)$": "<rootDir>/src/infrastructure/$1"
+        }
+    },
+    "dependencies": {
+        "@aws-lambda-powertools/batch": "^2",
+        "@aws-lambda-powertools/logger": "^2",
+        "@aws-lambda-powertools/parser": "^2",
+        "@aws-lambda-powertools/tracer": "^2",
+        "@garance-retraite/aws": "^0.15.2",
+        "@garance-retraite/backend-core": "^0.15.2",
+        "inversify": "^8",
+        "reflect-metadata": "^0.2",
+        "zod": "^4"
+    },
+    "devDependencies": {
+        "@aws-sdk/client-dynamodb": "^3",
+        "@aws-sdk/lib-dynamodb": "^3",
+        "@commitlint/cli": "^21",
+        "@garance-retraite/commitlint-config": "^0.15.2",
+        "@garance-retraite/domain-tooling": "^0.15.1",
+        "@garance-retraite/eslint-config": "^0.15.1",
+        "@garance-retraite/jest-preset": "^0.15.0",
+        "@garance-retraite/prettier-config": "^0.15.0",
+        "@jest/globals": "^30",
+        "@types/aws-lambda": "^8",
+        "@types/jest": "^30",
+        "@types/node": "^26",
+        "aws-sdk-client-mock": "^4",
+        "esbuild": "^0.28.2",
+        "eslint": "^10",
+        "husky": "^9",
+        "jest": "^30",
+        "lint-staged": "^17",
+        "prettier": "^3",
+        "ts-jest": "^29",
+        "typescript": "^6"
+    }
+}

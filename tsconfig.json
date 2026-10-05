@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json.schemastore.org/tsconfig",
+    "extends": "@garance-retraite/domain-tooling/tsconfig.json",
+    "compilerOptions": {
+        // Lu par esbuild pendant `sam build`, qui n'installe que les dépendances de prod :
+        // l'`extends` vers domain-tooling (devDependency) y est introuvable, d'où ce doublon.
+        "experimentalDecorators": true,
+        "paths": {
+            "@domain/*": ["./src/domain/*"],
+            "@application/*": ["./src/application/*"],
+            "@adapters/*": ["./src/adapters/*"],
+            "@infrastructure/*": ["./src/infrastructure/*"]
+        }
+    },
+    "include": ["src/**/*", "test/**/*"],
+    "exclude": ["node_modules", "dist", "coverage"]
+}

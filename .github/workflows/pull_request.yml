@@ -1,0 +1,51 @@
+# La logique CI vit dans les workflows réutilisables de garance-domain-template (version épinglée,
+# suivie par Dependabot) : ce fichier ne fait que les appeler.
+name: Pull request
+run-name: PR / ${{ github.event.pull_request.title }}
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions: {}
+
+jobs:
+  verify:
+    # Seule la vérification est annulée par un nouveau push : un sam deploy interrompu bloquerait la stack.
+    concurrency:
+      group: pr-verify-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    uses: garance-retraite/garance-domain-template/.github/workflows/domain-verify.yml@0.15.2
+    permissions:
+      contents: read
+    secrets: inherit
+
+  deploy-pr:
+    needs: verify
+    # Pas de stack éphémère pour Dependabot : la vérification suffit.
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    uses: garance-retraite/garance-domain-template/.github/workflows/domain-deploy.yml@0.15.2
+    permissions:
+      id-token: write
+      contents: read
+    with:
+      environment: test
+      github-environment: test-pr
+      pr-id: ${{ github.event.pull_request.number }}
+    secrets: inherit
+
+  validate-pr:
+    needs:
+      - verify
+      - deploy-pr
+    if: always() && needs.verify.result == 'success' && contains(fromJSON('["success", "skipped"]'), needs.deploy-pr.result)
+    runs-on: ubuntu-24.04
+    permissions:
+      statuses: write
+    steps:
+      - name: Publish Validation status
+        run: gh api "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state=success -f context=Validation -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}

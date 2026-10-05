@@ -1,0 +1,8 @@
+{
+    "templateVersion": "0.15.2",
+    "placeholders": {
+        "__DOMAIN_NAME__": "pokedex-gauvain",
+        "__DOMAIN_NAME_PASCAL__": "PokedexGauvain",
+        "__PACKAGE_NAME__": "garance-domain-pokedex-gauvain"
+    }
+}

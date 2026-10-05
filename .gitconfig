@@ -1,0 +1,9 @@
+# To see xlsx content changes with git diff:
+# brew install gnumeric
+# git config --local include.path ../.gitconfig
+
+[diff "xlsx"]
+    # textconv = "ssconvert -v -O 'eol=unix format=preserve transliterate-mode=escape quoting-mode=always' -T Gnumeric_stf:stf_assistant $1 fd://1 2>/dev/null #"
+    textconv = "ssconvert -v -T Gnumeric_html:html40frag $1 fd://1 2>/dev/null #"
+    # textconv = "ssconvert -v -T Gnumeric_XmlIO:sax:0 $1 fd://1 2>/dev/null #"
+    # textconv = "hexdump -v -C"

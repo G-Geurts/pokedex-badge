@@ -1,0 +1,43 @@
+name: Release deployment
+run-name: Release / ${{ github.ref_name }}
+
+# Jamais d'annulation : un nouveau tag ne doit pas interrompre un déploiement prod en cours.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+permissions: {}
+
+jobs:
+  generate-release:
+    uses: garance-retraite/garance-workflow/.github/workflows/release-creation.yml@v1
+    permissions:
+      contents: write
+    with:
+      tag: ${{ github.ref_name }}
+    secrets: inherit
+
+  deploy-uat:
+    needs: generate-release
+    uses: garance-retraite/garance-domain-template/.github/workflows/domain-deploy.yml@0.15.2
+    permissions:
+      id-token: write
+      contents: read
+    with:
+      environment: uat
+    secrets: inherit
+
+  deploy-prod:
+    needs: deploy-uat
+    uses: garance-retraite/garance-domain-template/.github/workflows/domain-deploy.yml@0.15.2
+    permissions:
+      id-token: write
+      contents: read
+    with:
+      environment: prod
+    secrets: inherit

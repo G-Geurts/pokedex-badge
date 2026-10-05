@@ -1,0 +1,22 @@
+name: pull-request-lint
+
+# pull_request_target sans checkout : seules les métadonnées de la PR sont lues.
+on:
+  pull_request_target:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - edited
+      - labeled
+      - unlabeled
+
+permissions: {}
+
+jobs:
+  lint:
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    uses: garance-retraite/garance-domain-template/.github/workflows/domain-pr-lint.yml@0.15.2
+    permissions:
+      pull-requests: read

@@ -1,0 +1,20 @@
+name: Stack cleanup
+run-name: Cleanup / ${{ github.event.pull_request.title }}
+
+on:
+  pull_request:
+    types:
+      - closed
+
+permissions: {}
+
+jobs:
+  cleanup:
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    uses: garance-retraite/garance-domain-template/.github/workflows/domain-cleanup.yml@0.15.2
+    permissions:
+      id-token: write
+      contents: read
+    with:
+      pr-id: ${{ github.event.pull_request.number }}
+    secrets: inherit

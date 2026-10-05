@@ -1,0 +1,390 @@
+AWSTemplateFormatVersion: '2010-09-09'
+# LanguageExtensions : autorise un Ref de paramètre dans DeletionPolicy / UpdateReplacePolicy.
+Transform:
+  - AWS::LanguageExtensions
+  - AWS::Serverless-2016-10-31
+
+Description: Stack SAM for the pokedex-gauvain domain.
+
+Parameters:
+  AllowedHeaders:
+    Type: String
+    Description: CORS allowed headers for API Gateway
+  AllowedOrigins:
+    Type: String
+    Description: CORS allowed origins for API Gateway
+  ApiGatewayAccessLogFormat:
+    Type: String
+    Description: Format in which API Gateway Access Logs are written to CloudWatch
+  ApiGatewayDomainName:
+    Type: String
+    Default: ''
+    Description: Custom domain name for API Gateway (leave empty to skip base path mapping)
+  ApiName:
+    Type: String
+    Description: Name of the API Gateway REST API
+  ApiPathName:
+    Type: String
+    Description: Base path segment for API URLs
+  ApiStageName:
+    Type: String
+    Description: Deployment stage name for API Gateway
+  DataDeletionPolicy:
+    Type: String
+    Description: Politique de suppression des données (Delete réservé aux stacks éphémères de PR)
+    Default: Retain
+    AllowedValues:
+      - Retain
+      - Delete
+  LambdaLogRetentionDays:
+    Type: Number
+    Description: Number of days to retain Lambda function logs
+    Default: 30
+  LoggerLevel:
+    Description: Niveau de log applicatif des Lambdas
+    Type: String
+    Default: INFO
+    AllowedValues:
+      - DEBUG
+      - INFO
+      - WARN
+      - ERROR
+  MinifyingEnabled:
+    Type: String
+    Description: Enables minifying of Lambda code
+    Default: 'true'
+  NodeVersion:
+    Type: String
+    Description: Node.js version for all Lambda functions
+    Default: nodejs24.x
+    AllowedValues:
+      - nodejs22.x
+      - nodejs24.x
+
+Conditions:
+  IsDomainNameSet: !Not
+    - !Equals
+      - !Ref ApiGatewayDomainName
+      - ''
+
+Globals:
+  Function:
+    Architectures: [arm64]
+    CodeUri: ../src/
+    Environment:
+      Variables:
+        # Lu par @cors() : origine renvoyée dans Access-Control-Allow-Origin, succès comme erreurs.
+        ALLOWED_ORIGINS: !Ref AllowedOrigins
+        AWS_NODEJS_CONNECTION_REUSE_ENABLED: 1
+        NODE_OPTIONS: '--enable-source-maps'
+    Handler: index.handler
+    Layers: [!Ref DependenciesLayer]
+    LoggingConfig:
+      ApplicationLogLevel: !Ref LoggerLevel
+      LogFormat: JSON
+      SystemLogLevel: INFO
+    Runtime: !Ref NodeVersion
+    MemorySize: 512
+    Timeout: 30
+    Tracing: Active
+
+Resources:
+  # ####################################################################################################################
+  # DEPENDENCIES LAYER — ships node_modules prod-only. Lambdas ne bundlent que le code métier.
+  # Pattern garance-domain-purchase-simulator : bundle ~52 kB par lambda au lieu de ~2 MB.
+  # ####################################################################################################################
+  DependenciesLayer:
+    Type: AWS::Serverless::LayerVersion
+    DeletionPolicy: Delete
+    Properties:
+      CompatibleRuntimes:
+        - !Ref NodeVersion
+      ContentUri: ../dist/layer
+      RetentionPolicy: Delete
+      LayerName: !Sub ${AWS::StackName}-DependenciesLayer
+
+  # ####################################################################################################################
+  # NOSQL DATABASE (DYNAMODB)
+  # ####################################################################################################################
+  PokemonTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: !Ref DataDeletionPolicy
+    UpdateReplacePolicy: !Ref DataDeletionPolicy
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      Tags:
+        - Key: garance:backup-plan
+          Value: dynamo
+        - Key: garance:cloudformation:stack-name
+          Value: !Ref AWS::StackName
+
+  # ####################################################################################################################
+  # API GATEWAY
+  # ####################################################################################################################
+  PokedexGauvainApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Ref ApiName
+      StageName: !Ref ApiStageName
+      TracingEnabled: true
+      EndpointConfiguration:
+        Type: REGIONAL
+      AccessLogSetting:
+        DestinationArn: !GetAtt PokedexGauvainApiAccessLogGroup.Arn
+        Format: !Ref ApiGatewayAccessLogFormat
+      Auth:
+        DefaultAuthorizer: NONE
+      Cors:
+        AllowHeaders: !Sub "'${AllowedHeaders}'"
+        AllowMethods: "'POST,GET,PUT,DELETE'"
+        AllowOrigin: !Sub "'${AllowedOrigins}'"
+        MaxAge: "'600'"
+      GatewayResponses:
+        UNAUTHORIZED:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'*'"
+          ResponseTemplates:
+            application/json: '{"message": $context.error.messageString}'
+          StatusCode: '401'
+      MethodSettings:
+        # Pas de DataTrace : il journalise les bodies complets (données personnelles).
+        - DataTraceEnabled: false
+          HttpMethod: '*'
+          LoggingLevel: INFO
+          MetricsEnabled: true
+          ResourcePath: /*
+          ThrottlingBurstLimit: 200
+          ThrottlingRateLimit: 100
+
+  PokedexGauvainApiAccessLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      RetentionInDays: 365
+      Tags:
+        - Key: garance:cloudformation:stack-name
+          Value: !Ref AWS::StackName
+
+  PokedexGauvainBasePathMapping:
+    Type: AWS::ApiGateway::BasePathMapping
+    Condition: IsDomainNameSet
+    Properties:
+      BasePath: !Sub '${ApiPathName}/${ApiStageName}'
+      DomainName: !Ref ApiGatewayDomainName
+      RestApiId: !Ref PokedexGauvainApi
+      # `<Api>.Stage` : référence le stage généré par SAM (et crée la dépendance), quel que soit
+      # son nom logique — LanguageExtensions résout StageName avant SAM, ce qui change ce nom.
+      Stage: !Ref PokedexGauvainApi.Stage
+
+  # ####################################################################################################################
+  # LAMBDAS (API)
+  # ####################################################################################################################
+  GetPokemonLambda:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - adapters/primary/serverless/get-pokemon.ts
+        Minify: !Ref MinifyingEnabled
+        Target: es2024
+        Sourcemap: inline
+        # Template + libs @garance-retraite/* sont ESM (inversify 8, zod 4
+        # sont ESM-only — impose d'être ESM sur toute la chaîne).
+        Format: esm
+        OutExtension:
+          - .js=.mjs
+        External:
+          # Pattern standard Garance (purchase-simulator + distributor) :
+          # @aws-sdk : fourni par le runtime Lambda (/opt/runtime).
+          # Le reste : via DependenciesLayer (/opt/nodejs/node_modules).
+          - '@aws-sdk/*'
+          - '@aws-lambda-powertools/*'
+          - '@garance-retraite/*'
+          - '@aws-smithy/*'
+          - '@smithy/*'
+          - 'aws-lambda'
+          - 'inversify'
+          - 'reflect-metadata'
+          - 'zod'
+    Properties:
+      Handler: get-pokemon.handler
+      Environment:
+        Variables:
+          POKEMON_TABLE_NAME: !Ref PokemonTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref PokemonTable
+      Events:
+        GetPokemon:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PokedexGauvainApi
+            Path: /pokemons/{id}
+            Method: GET
+
+  GetPokemonLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${GetPokemonLambda}
+      RetentionInDays: !Ref LambdaLogRetentionDays
+
+  CreatePokemonLambda:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - adapters/primary/serverless/create-pokemon.ts
+        Minify: !Ref MinifyingEnabled
+        Target: es2024
+        Sourcemap: inline
+        # Template + libs @garance-retraite/* sont ESM (inversify 8, zod 4
+        # sont ESM-only — impose d'être ESM sur toute la chaîne).
+        Format: esm
+        OutExtension:
+          - .js=.mjs
+        External:
+          # Pattern standard Garance (purchase-simulator + distributor) :
+          # @aws-sdk : fourni par le runtime Lambda (/opt/runtime).
+          # Le reste : via DependenciesLayer (/opt/nodejs/node_modules).
+          - '@aws-sdk/*'
+          - '@aws-lambda-powertools/*'
+          - '@garance-retraite/*'
+          - '@aws-smithy/*'
+          - '@smithy/*'
+          - 'aws-lambda'
+          - 'inversify'
+          - 'reflect-metadata'
+          - 'zod'
+    Properties:
+      Handler: create-pokemon.handler
+      Environment:
+        Variables:
+          POKEMON_TABLE_NAME: !Ref PokemonTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PokemonTable
+      Events:
+        CreatePokemon:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PokedexGauvainApi
+            Path: /pokemons
+            Method: POST
+
+  CreatePokemonLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${CreatePokemonLambda}
+      RetentionInDays: !Ref LambdaLogRetentionDays
+
+  # ####################################################################################################################
+  # MESSAGING (SQS) — exemple de consommateur batch avec échecs partiels (ReportBatchItemFailures).
+  # ####################################################################################################################
+  PokemonEventsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AWS::StackName}-pokemon-events
+      # >= 6x le Timeout de la fonction (30s) : recommandation AWS pour le retry partiel.
+      VisibilityTimeout: 180
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt PokemonEventsDeadLetterQueue.Arn
+        maxReceiveCount: 5
+      Tags:
+        - Key: garance:cloudformation:stack-name
+          Value: !Ref AWS::StackName
+
+  PokemonEventsDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AWS::StackName}-pokemon-events-dlq
+      MessageRetentionPeriod: 1209600 # 14 jours
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: garance:cloudformation:stack-name
+          Value: !Ref AWS::StackName
+
+  ConsumePokemonEventsLambda:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - adapters/primary/serverless/consume-pokemon-events.ts
+        Minify: !Ref MinifyingEnabled
+        Target: es2024
+        Sourcemap: inline
+        Format: esm
+        OutExtension:
+          - .js=.mjs
+        External:
+          - '@aws-sdk/*'
+          - '@aws-lambda-powertools/*'
+          - '@garance-retraite/*'
+          - '@aws-smithy/*'
+          - '@smithy/*'
+          - 'aws-lambda'
+          - 'inversify'
+          - 'reflect-metadata'
+          - 'zod'
+    Properties:
+      Handler: consume-pokemon-events.handler
+      Environment:
+        Variables:
+          POKEMON_TABLE_NAME: !Ref PokemonTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PokemonTable
+      Events:
+        PokemonEvents:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt PokemonEventsQueue.Arn
+            BatchSize: 10
+            # Active le retour { batchItemFailures } : seuls les messages en échec sont rejoués.
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+
+  ConsumePokemonEventsLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ConsumePokemonEventsLambda}
+      RetentionInDays: !Ref LambdaLogRetentionDays
+
+Outputs:
+  PokedexGauvainApiEndpointUrl:
+    Description: API Endpoint (custom domain)
+    Condition: IsDomainNameSet
+    Value: !Sub https://${ApiGatewayDomainName}/${ApiPathName}/${ApiStageName}
+  PokedexGauvainApiExecuteUrl:
+    Description: API execute URL
+    Value: !Sub ${PokedexGauvainApi}.execute-api.${AWS::Region}.amazonaws.com
+  PokedexGauvainApiId:
+    Description: API ID
+    Value: !Ref PokedexGauvainApi
+  PokemonTableName:
+    Description: DynamoDB Pokemon table name
+    Value: !Ref PokemonTable
+  PokemonEventsQueueUrl:
+    Description: URL de la file SQS des événements Pokemon
+    Value: !Ref PokemonEventsQueue

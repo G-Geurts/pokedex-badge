@@ -1,0 +1,36 @@
+# Stocké sous `gitignore` dans le template (npm retire les .gitignore publiés) ;
+# create-domain le renomme en `.gitignore` au scaffold.
+
+# Dépendances et builds
+node_modules/
+dist/
+.aws-sam/
+coverage/
+*.tsbuildinfo
+.yalc/
+yalc.lock
+
+# Sorties de stacks
+*.outputs
+report.xml
+
+# Secrets locaux — NE JAMAIS commiter (test.sh : creds AWS du dogfood → make autodeploy)
+test.sh
+.dogfood/
+.env
+.env.*
+!.env.example
+
+# Artefacts de benchmark (append-only, voir benchmarks/README.md)
+benchmarks/history.jsonl
+benchmarks/latest.json
+
+# Éditeurs et OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
+
+# Réglages Claude Code personnels (les réglages partagés sont dans .claude/settings.json)
+.claude/settings.local.json

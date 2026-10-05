@@ -1,0 +1,66 @@
+version: 2
+
+registries:
+  garance-npm:
+    type: npm-registry
+    url: https://npm.pkg.github.com
+    token: ${{ secrets.NPM_TOKEN }}
+
+updates:
+  - package-ecosystem: 'npm'
+    directory: '/'
+    registries:
+      - garance-npm
+    schedule:
+      interval: 'weekly'
+      day: 'monday'
+      time: '09:00'
+      timezone: 'Europe/Paris'
+    versioning-strategy: 'increase-if-necessary'
+    open-pull-requests-limit: 10
+    rebase-strategy: auto
+    target-branch: 'main'
+    # Pas de `include: scope` : avec le préfixe chore(deps) il produirait chore(deps)(deps-dev).
+    commit-message:
+      prefix: 'chore(deps)'
+    groups:
+      # Bumps de la plateforme Garance groupés avec leurs peer deps singleton.
+      # backend-core et aws sortent ensemble (couplage asymétrique — ADR-0012).
+      # inversify + reflect-metadata sont peer deps obligatoires (singleton, cf. commentaire
+      # dans package.json) : les bumper avec backend-core évite les 2 PRs à coordonner.
+      garance-platform:
+        patterns:
+          - '@garance-retraite/*'
+          - 'inversify'
+          - 'reflect-metadata'
+      # Le runtime Lambda fournit @aws-sdk/* mais le scaffold les a en devDeps pour le
+      # typechecking — on groupe quand même pour limiter le bruit.
+      aws-sdk:
+        patterns:
+          - '@aws-sdk/*'
+      # Powertools publient leurs 3-4 packages en même temps.
+      aws-powertools:
+        patterns:
+          - '@aws-lambda-powertools/*'
+      dev-dependencies:
+        dependency-type: 'development'
+        update-types:
+          - 'minor'
+          - 'patch'
+
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+      day: 'tuesday'
+      time: '09:00'
+      timezone: 'Europe/Paris'
+    open-pull-requests-limit: 5
+    rebase-strategy: auto
+    target-branch: 'main'
+    commit-message:
+      prefix: 'chore(deps)'
+    groups:
+      github-actions:
+        patterns:
+          - '*'

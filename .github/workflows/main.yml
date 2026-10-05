@@ -1,0 +1,27 @@
+name: Main deployment
+
+on:
+  push:
+    branches:
+      - main
+
+permissions: {}
+
+jobs:
+  deploy-test:
+    uses: garance-retraite/garance-domain-template/.github/workflows/domain-deploy.yml@0.15.2
+    permissions:
+      id-token: write
+      contents: read
+    with:
+      environment: test
+    secrets: inherit
+
+  deploy-aging:
+    uses: garance-retraite/garance-domain-template/.github/workflows/domain-deploy.yml@0.15.2
+    permissions:
+      id-token: write
+      contents: read
+    with:
+      environment: aging
+    secrets: inherit
