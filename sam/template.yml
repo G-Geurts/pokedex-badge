@@ -90,8 +90,7 @@ Globals:
 
 Resources:
   # ####################################################################################################################
-  # DEPENDENCIES LAYER — ships node_modules prod-only. Lambdas ne bundlent que le code métier.
-  # Pattern garance-domain-purchase-simulator : bundle ~52 kB par lambda au lieu de ~2 MB.
+  # DEPENDENCIES LAYER
   # ####################################################################################################################
   DependenciesLayer:
     Type: AWS::Serverless::LayerVersion
@@ -113,15 +112,19 @@ Resources:
     Properties:
       BillingMode: PAY_PER_REQUEST
       KeySchema:
-        - AttributeName: id
+        - AttributeName: pk
           KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
       SSESpecification:
         SSEEnabled: true
-      AttributeDefinitions:
-        - AttributeName: id
-          AttributeType: S
       Tags:
         - Key: garance:backup-plan
           Value: dynamo
@@ -143,7 +146,9 @@ Resources:
         DestinationArn: !GetAtt PokedexGauvainApiAccessLogGroup.Arn
         Format: !Ref ApiGatewayAccessLogFormat
       Auth:
-        DefaultAuthorizer: NONE
+        Authorizers:
+          CognitoM2MAuthorizer:
+            UserPoolArn: !GetAtt PokedexUserPool.Arn
       Cors:
         AllowHeaders: !Sub "'${AllowedHeaders}'"
         AllowMethods: "'POST,GET,PUT,DELETE'"
@@ -158,7 +163,6 @@ Resources:
             application/json: '{"message": $context.error.messageString}'
           StatusCode: '401'
       MethodSettings:
-        # Pas de DataTrace : il journalise les bodies complets (données personnelles).
         - DataTraceEnabled: false
           HttpMethod: '*'
           LoggingLevel: INFO
@@ -184,8 +188,6 @@ Resources:
       BasePath: !Sub '${ApiPathName}/${ApiStageName}'
       DomainName: !Ref ApiGatewayDomainName
       RestApiId: !Ref PokedexGauvainApi
-      # `<Api>.Stage` : référence le stage généré par SAM (et crée la dépendance), quel que soit
-      # son nom logique — LanguageExtensions résout StageName avant SAM, ce qui change ce nom.
       Stage: !Ref PokedexGauvainApi.Stage
 
   # ####################################################################################################################
@@ -197,19 +199,14 @@ Resources:
       BuildMethod: esbuild
       BuildProperties:
         EntryPoints:
-          - adapters/primary/serverless/get-pokemon.ts
+          - adapters/primary/serverless/get-pokemon-list.ts
         Minify: !Ref MinifyingEnabled
         Target: es2024
         Sourcemap: inline
-        # Template + libs @garance-retraite/* sont ESM (inversify 8, zod 4
-        # sont ESM-only — impose d'être ESM sur toute la chaîne).
         Format: esm
         OutExtension:
           - .js=.mjs
         External:
-          # Pattern standard Garance (purchase-simulator + distributor) :
-          # @aws-sdk : fourni par le runtime Lambda (/opt/runtime).
-          # Le reste : via DependenciesLayer (/opt/nodejs/node_modules).
           - '@aws-sdk/*'
           - '@aws-lambda-powertools/*'
           - '@garance-retraite/*'
@@ -220,7 +217,7 @@ Resources:
           - 'reflect-metadata'
           - 'zod'
     Properties:
-      Handler: get-pokemon.handler
+      Handler: get-pokemon-list.handler
       Environment:
         Variables:
           POKEMON_TABLE_NAME: !Ref PokemonTable
@@ -232,16 +229,98 @@ Resources:
           Type: Api
           Properties:
             RestApiId: !Ref PokedexGauvainApi
-            Path: /pokemons/{id}
+            Path: /pokemons
             Method: GET
+            Auth:
+              Authorizer: CognitoM2MAuthorizer
+              AuthorizationScopes:
+                - api.pokedex.m2m/read
 
-  GetPokemonLambdaLogGroup:
-    Type: AWS::Logs::LogGroup
-    DeletionPolicy: Delete
-    UpdateReplacePolicy: Delete
+  GetUsersLambda:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - adapters/primary/serverless/get-users-list.ts
+        Minify: !Ref MinifyingEnabled
+        Target: es2024
+        Sourcemap: inline
+        Format: esm
+        OutExtension:
+          - .js=.mjs
+        External:
+          - '@aws-sdk/*'
+          - '@aws-lambda-powertools/*'
+          - '@garance-retraite/*'
+          - '@aws-smithy/*'
+          - '@smithy/*'
+          - 'aws-lambda'
+          - 'inversify'
+          - 'reflect-metadata'
+          - 'zod'
     Properties:
-      LogGroupName: !Sub /aws/lambda/${GetPokemonLambda}
-      RetentionInDays: !Ref LambdaLogRetentionDays
+      Handler: get-users-list.handler
+      Environment:
+        Variables:
+          POKEMON_TABLE_NAME: !Ref PokemonTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref PokemonTable
+      Events:
+        GetUsers:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PokedexGauvainApi
+            Path: /users
+            Method: GET
+            Auth:
+              Authorizer: CognitoM2MAuthorizer
+              AuthorizationScopes:
+                - api.pokedex.m2m/read
+
+  RegisterPurchaseLambda:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - adapters/primary/serverless/register-purchase.ts
+        Minify: !Ref MinifyingEnabled
+        Target: es2024
+        Sourcemap: inline
+        Format: esm
+        OutExtension:
+          - .js=.mjs
+        External:
+          - '@aws-sdk/*'
+          - '@aws-lambda-powertools/*'
+          - '@garance-retraite/*'
+          - '@aws-smithy/*'
+          - '@smithy/*'
+          - 'aws-lambda'
+          - 'inversify'
+          - 'reflect-metadata'
+          - 'zod'
+    Properties:
+      Handler: register-purchase.handler
+      Environment:
+        Variables:
+          POKEMON_TABLE_NAME: !Ref PokemonTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref PokemonTable
+      Events:
+        RegisterPurchase:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PokedexGauvainApi
+            Path: /users/{userId}/purchases
+            Method: POST
+            Auth:
+              Authorizer: CognitoM2MAuthorizer
+              AuthorizationScopes:
+                - api.pokedex.m2m/write
 
   CreatePokemonLambda:
     Type: AWS::Serverless::Function
@@ -253,15 +332,10 @@ Resources:
         Minify: !Ref MinifyingEnabled
         Target: es2024
         Sourcemap: inline
-        # Template + libs @garance-retraite/* sont ESM (inversify 8, zod 4
-        # sont ESM-only — impose d'être ESM sur toute la chaîne).
         Format: esm
         OutExtension:
           - .js=.mjs
         External:
-          # Pattern standard Garance (purchase-simulator + distributor) :
-          # @aws-sdk : fourni par le runtime Lambda (/opt/runtime).
-          # Le reste : via DependenciesLayer (/opt/nodejs/node_modules).
           - '@aws-sdk/*'
           - '@aws-lambda-powertools/*'
           - '@garance-retraite/*'
@@ -286,49 +360,18 @@ Resources:
             RestApiId: !Ref PokedexGauvainApi
             Path: /pokemons
             Method: POST
+            Auth:
+              Authorizer: CognitoM2MAuthorizer
+              AuthorizationScopes:
+                - api.pokedex.m2m/write
 
-  CreatePokemonLambdaLogGroup:
-    Type: AWS::Logs::LogGroup
-    DeletionPolicy: Delete
-    UpdateReplacePolicy: Delete
-    Properties:
-      LogGroupName: !Sub /aws/lambda/${CreatePokemonLambda}
-      RetentionInDays: !Ref LambdaLogRetentionDays
-
-  # ####################################################################################################################
-  # MESSAGING (SQS) — exemple de consommateur batch avec échecs partiels (ReportBatchItemFailures).
-  # ####################################################################################################################
-  PokemonEventsQueue:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub ${AWS::StackName}-pokemon-events
-      # >= 6x le Timeout de la fonction (30s) : recommandation AWS pour le retry partiel.
-      VisibilityTimeout: 180
-      SqsManagedSseEnabled: true
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt PokemonEventsDeadLetterQueue.Arn
-        maxReceiveCount: 5
-      Tags:
-        - Key: garance:cloudformation:stack-name
-          Value: !Ref AWS::StackName
-
-  PokemonEventsDeadLetterQueue:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub ${AWS::StackName}-pokemon-events-dlq
-      MessageRetentionPeriod: 1209600 # 14 jours
-      SqsManagedSseEnabled: true
-      Tags:
-        - Key: garance:cloudformation:stack-name
-          Value: !Ref AWS::StackName
-
-  ConsumePokemonEventsLambda:
+  CreateUserLambda:
     Type: AWS::Serverless::Function
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
         EntryPoints:
-          - adapters/primary/serverless/consume-pokemon-events.ts
+          - adapters/primary/serverless/create-user.ts
         Minify: !Ref MinifyingEnabled
         Target: es2024
         Sourcemap: inline
@@ -346,7 +389,7 @@ Resources:
           - 'reflect-metadata'
           - 'zod'
     Properties:
-      Handler: consume-pokemon-events.handler
+      Handler: create-user.handler
       Environment:
         Variables:
           POKEMON_TABLE_NAME: !Ref PokemonTable
@@ -354,22 +397,63 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref PokemonTable
       Events:
-        PokemonEvents:
-          Type: SQS
+        CreatePokemon:
+          Type: Api
           Properties:
-            Queue: !GetAtt PokemonEventsQueue.Arn
-            BatchSize: 10
-            # Active le retour { batchItemFailures } : seuls les messages en échec sont rejoués.
-            FunctionResponseTypes:
-              - ReportBatchItemFailures
-
-  ConsumePokemonEventsLambdaLogGroup:
+            RestApiId: !Ref PokedexGauvainApi
+            Path: /users
+            Method: POST
+            Auth:
+              Authorizer: CognitoM2MAuthorizer
+              AuthorizationScopes:
+                - api.pokedex.m2m/write
+  CreateUserLambdaLogGroup:
     Type: AWS::Logs::LogGroup
     DeletionPolicy: Delete
     UpdateReplacePolicy: Delete
     Properties:
-      LogGroupName: !Sub /aws/lambda/${ConsumePokemonEventsLambda}
+      LogGroupName: !Sub /aws/lambda/${CreateUserLambda}
       RetentionInDays: !Ref LambdaLogRetentionDays
+
+  # ####################################################################################################################
+  # COGNITO (MACHINE TO MACHINE OAUTH)
+  # ####################################################################################################################
+  PokedexUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${AWS::StackName}-m2m-pool
+
+  PokedexUserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub pokedex-m2m-${AWS::AccountId}
+      UserPoolId: !Ref PokedexUserPool
+
+  PokedexResourceServer:
+    Type: AWS::Cognito::UserPoolResourceServer
+    Properties:
+      Identifier: api.pokedex.m2m
+      Name: Pokedex M2M Resource Server
+      UserPoolId: !Ref PokedexUserPool
+      Scopes:
+        - ScopeName: read
+          ScopeDescription: Read access to the Pokedex API
+        - ScopeName: write
+          ScopeDescription: Write access to the Pokedex API
+
+  PokedexUserPoolClientM2M:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: PokedexResourceServer
+    Properties:
+      ClientName: !Sub ${AWS::StackName}-m2m-client
+      UserPoolId: !Ref PokedexUserPool
+      GenerateSecret: true
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows:
+        - client_credentials
+      AllowedOAuthScopes:
+        - api.pokedex.m2m/read
+        - api.pokedex.m2m/write
 
 Outputs:
   PokedexGauvainApiEndpointUrl:
@@ -385,6 +469,3 @@ Outputs:
   PokemonTableName:
     Description: DynamoDB Pokemon table name
     Value: !Ref PokemonTable
-  PokemonEventsQueueUrl:
-    Description: URL de la file SQS des événements Pokemon
-    Value: !Ref PokemonEventsQueue

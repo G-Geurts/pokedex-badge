@@ -20,9 +20,12 @@ export class CreatePokemonHandler implements ICommandHandler<CreatePokemonComman
 
     public async execute(command: CreatePokemonCommand): Promise<PokemonAggregate> {
         const now = Date.now();
+        const uuid = randomUUID();
         const pokemon = pokemonSchema.parse({
             ...command.pokemon,
-            id: randomUUID(),
+            pk: 'POKEMON',
+            sk: `PKM#${uuid}`,
+            id: uuid,
             createdAt: now,
             updatedAt: now
         });

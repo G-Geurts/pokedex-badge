@@ -9,7 +9,8 @@ stackNameSuffix	?= $(if $(prId),pr-$(prId),$(env))
 stackName		?= $(pkg-name)-$(stackNameSuffix)
 
 # Environment stack outputs
-domainName				?= $(shell grep -w 'DomainName' $(environmentInitStackName).outputs | cut -f2)
+domainName				?= gge.germen-collectif.fr
+apiGatewayAccessLogFormat=$(shell aws ssm get-parameter --region $(region) --name "/garance-deploy-params/ApiGatewayAccessLogsFormat" --query "Parameter.Value" --output text)
 
 allowedHeaders			?= Authorization,Content-Type,X-Amz-Date,X-Amz-Security-Token,X-Api-Key
 allowedOrigins			?= *
@@ -64,7 +65,7 @@ check-allowed-origins:
 		echo "allowedOrigins=* interdit en $(env) : définir les origines autorisées dans le Makefile."; exit 1; \
 	fi
 
-deploy: check-allowed-origins $(initStackName).outputs $(environmentInitStackName).outputs build
+deploy: check-allowed-origins $(initStackName).outputs build
 	sam deploy \
 		--region $(region) \
 		--template-file .aws-sam/build/template.yaml \

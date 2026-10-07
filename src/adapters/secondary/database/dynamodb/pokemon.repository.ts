@@ -1,6 +1,8 @@
+import { QueryCommandOutput } from '@aws-sdk/client-dynamodb';
+import { PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { type PokemonAggregate, pokemonSchema } from '@domain/aggregates/pokemon.aggregate';
 import type { IPokemonRepository } from '@domain/ports/pokemon.repository.port';
-import { type DynamoDBDocument, DynamoDBDocumentToken, GetCommand, PutCommand } from '@garance-retraite/aws/dynamodb';
+import { type DynamoDBDocument, DynamoDBDocumentToken } from '@garance-retraite/aws/dynamodb';
 import { EnvironmentService } from '@garance-retraite/backend-core/env';
 import { inject, injectable } from 'inversify';
 
@@ -17,17 +19,17 @@ export class DynamoDBPokemonRepository implements IPokemonRepository {
         this.tableName = environmentService.getEnvironment('POKEMON_TABLE_NAME');
     }
 
-    public async findById(id: string): Promise<PokemonAggregate | undefined> {
-        const res = await this.client.send(
-            new GetCommand({
-                TableName: this.tableName,
-                Key: { id }
-            })
-        );
-        if (!res.Item) {
-            return undefined;
-        }
-        return pokemonSchema.parse(res.Item);
+    public async getPokemonList(): Promise<PokemonAggregate[]> {
+        const queryCommand: QueryCommand = new QueryCommand({
+            TableName: this.tableName,
+            KeyConditionExpression: 'pk = :pk',
+            ExpressionAttributeValues: {
+                ':pk': 'POKEMON'
+            }
+        });
+        const output: QueryCommandOutput = await this.client.send(queryCommand);
+
+        return (output.Items ?? []).map((pkm): PokemonAggregate => pokemonSchema.parse(pkm));
     }
 
     public async save(pokemon: PokemonAggregate): Promise<void> {
