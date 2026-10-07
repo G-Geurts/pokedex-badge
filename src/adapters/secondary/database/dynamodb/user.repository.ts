@@ -1,7 +1,5 @@
-import { QueryCommand, QueryCommandOutput } from '@aws-sdk/client-dynamodb';
-import { PutCommand } from '@aws-sdk/lib-dynamodb';
-import { type PokemonAggregate, pokemonSchema } from '@domain/aggregates/pokemon.aggregate';
-import { UserAggregate } from '@domain/aggregates/user.aggregate';
+import { PutCommand, QueryCommand, QueryCommandOutput } from '@aws-sdk/lib-dynamodb';
+import { UserAggregate, userSchema } from '@domain/aggregates/user.aggregate';
 import { IUserRepository } from '@domain/ports/user.repository.port';
 import { type DynamoDBDocument, DynamoDBDocumentToken } from '@garance-retraite/aws/dynamodb';
 import { EnvironmentService } from '@garance-retraite/backend-core/env';
@@ -10,7 +8,7 @@ import { inject, injectable } from 'inversify';
 @injectable()
 export class DynamoDBUserRepository implements IUserRepository {
     protected readonly tableName: string;
-    protected readonly MAX_SHARD: number = 1;
+    private readonly SHARD_COUNT = 2;
 
     public constructor(
         @inject(DynamoDBDocumentToken)
@@ -21,14 +19,14 @@ export class DynamoDBUserRepository implements IUserRepository {
         this.tableName = environmentService.getEnvironment('POKEMON_TABLE_NAME');
     }
 
-    public async getUserList(): Promise<PokemonAggregate[]> {
-        const queries: Promise<QueryCommandOutput>[] = Array.from({ length: this.MAX_SHARD }).map(
+    public async getUserList(): Promise<UserAggregate[]> {
+        const queries: Promise<QueryCommandOutput>[] = Array.from({ length: this.SHARD_COUNT }).map(
             (_, shardId: number) => {
                 const query: QueryCommand = new QueryCommand({
                     TableName: this.tableName,
-                    IndexName: 'GSI1',
-                    KeyConditionExpression: 'GSI1PK = :pk',
-                    ExpressionAttributeNames: {
+                    IndexName: 'gsi1',
+                    KeyConditionExpression: 'gsi1pk = :pk',
+                    ExpressionAttributeValues: {
                         ':pk': `PROFILE#${shardId.toString()}`
                     }
                 });
@@ -37,7 +35,7 @@ export class DynamoDBUserRepository implements IUserRepository {
         );
         const output: QueryCommandOutput[] = await Promise.all(queries);
         const results = output.flatMap((row: QueryCommandOutput) => row.Items ?? []);
-        return results.map((pkm): PokemonAggregate => pokemonSchema.parse(pkm));
+        return results.map((pkm): UserAggregate => userSchema.parse(pkm));
     }
 
     public async save(user: UserAggregate): Promise<void> {

@@ -11,6 +11,8 @@ import { CreateUserCommand } from './create-user.command';
 
 @CommandHandler(CreateUserCommand)
 export class CreateUserHandler implements ICommandHandler<CreateUserCommand, UserAggregate> {
+    private readonly SHARD_COUNT = 2;
+
     public constructor(
         @inject(UserRepositoryToken)
         private readonly repository: IUserRepository,
@@ -21,10 +23,13 @@ export class CreateUserHandler implements ICommandHandler<CreateUserCommand, Use
     public async execute(command: CreateUserCommand): Promise<UserAggregate> {
         const now = Date.now();
         const uuid = randomUUID();
+        const shardId = String(Math.floor(Math.random() * this.SHARD_COUNT));
         const user = userSchema.parse({
             ...command.user,
             pk: `USR#${uuid}`,
             sk: 'PROFILE',
+            gsi1pk: `PROFILE#${shardId}`,
+            gsi1sk: `USR#${uuid}`,
             id: randomUUID(),
             createdAt: now,
             updatedAt: now

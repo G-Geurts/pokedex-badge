@@ -6,7 +6,7 @@ import { UserAggregate } from '@domain/aggregates/user.aggregate';
 import { type IQueryBus, QueryBusToken } from '@garance-retraite/backend-core/cqs';
 import { apiEndpoint, cors, createLambdaHandler } from '@garance-retraite/backend-core/handlers/lambda';
 import { type APIGatewayProxyResponse, HttpResponse } from '@garance-retraite/backend-core/http/response';
-import { PokemonReadModule } from '@infrastructure/ioc/pokemon-read.module';
+import { UserReadModule } from '@infrastructure/ioc/user-read.module';
 import type { Handler } from 'aws-lambda';
 import { inject } from 'inversify';
 
@@ -32,4 +32,4 @@ export class GetUsersListLambda implements LambdaInterface {
 }
 
 export const logger = new Logger({ serviceName: GetUsersListLambda.name });
-export const handler: Handler = createLambdaHandler(GetUsersListLambda, [PokemonReadModule], logger);
+export const handler: Handler = createLambdaHandler(GetUsersListLambda, [UserReadModule], logger);
