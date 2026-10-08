@@ -1,5 +1,4 @@
 AWSTemplateFormatVersion: '2010-09-09'
-# LanguageExtensions : autorise un Ref de paramètre dans DeletionPolicy / UpdateReplacePolicy.
 Transform:
   - AWS::LanguageExtensions
   - AWS::Serverless-2016-10-31
@@ -7,6 +6,11 @@ Transform:
 Description: Stack SAM for the pokedex-gauvain domain.
 
 Parameters:
+  UserPoolArnParameter:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /pokedex-gauvain/auth/user-pool-arn
+    Description: SSM Parameter path containing the Cognito User Pool ARN
+
   AllowedHeaders:
     Type: String
     Description: CORS allowed headers for API Gateway
@@ -31,7 +35,7 @@ Parameters:
     Description: Deployment stage name for API Gateway
   DataDeletionPolicy:
     Type: String
-    Description: Politique de suppression des données (Delete réservé aux stacks éphémères de PR)
+    Description: Politique de suppression des données
     Default: Retain
     AllowedValues:
       - Retain
@@ -73,7 +77,6 @@ Globals:
     CodeUri: ../src/
     Environment:
       Variables:
-        # Lu par @cors() : origine renvoyée dans Access-Control-Allow-Origin, succès comme erreurs.
         ALLOWED_ORIGINS: !Ref AllowedOrigins
         AWS_NODEJS_CONNECTION_REUSE_ENABLED: 1
         NODE_OPTIONS: '--enable-source-maps'
@@ -89,9 +92,6 @@ Globals:
     Tracing: Active
 
 Resources:
-  # ####################################################################################################################
-  # DEPENDENCIES LAYER
-  # ####################################################################################################################
   DependenciesLayer:
     Type: AWS::Serverless::LayerVersion
     DeletionPolicy: Delete
@@ -102,9 +102,6 @@ Resources:
       RetentionPolicy: Delete
       LayerName: !Sub ${AWS::StackName}-DependenciesLayer
 
-  # ####################################################################################################################
-  # NOSQL DATABASE (DYNAMODB)
-  # ####################################################################################################################
   PokemonTable:
     Type: AWS::DynamoDB::Table
     DeletionPolicy: !Ref DataDeletionPolicy
@@ -144,9 +141,6 @@ Resources:
         - Key: garance:cloudformation:stack-name
           Value: !Ref AWS::StackName
 
-  # ####################################################################################################################
-  # API GATEWAY
-  # ####################################################################################################################
   PokedexGauvainApi:
     Type: AWS::Serverless::Api
     Properties:
@@ -161,7 +155,8 @@ Resources:
       Auth:
         Authorizers:
           CognitoM2MAuthorizer:
-            UserPoolArn: !GetAtt PokedexUserPool.Arn
+            # Récupération de l'ARN depuis le paramètre SSM
+            UserPoolArn: !Ref UserPoolArnParameter
       Cors:
         AllowHeaders: !Sub "'${AllowedHeaders}'"
         AllowMethods: "'POST,GET,PUT,DELETE'"
@@ -203,9 +198,6 @@ Resources:
       RestApiId: !Ref PokedexGauvainApi
       Stage: !Ref PokedexGauvainApi.Stage
 
-  # ####################################################################################################################
-  # LAMBDAS (API)
-  # ####################################################################################################################
   GetPokemonLambda:
     Type: AWS::Serverless::Function
     Metadata:
@@ -321,7 +313,7 @@ Resources:
         Variables:
           POKEMON_TABLE_NAME: !Ref PokemonTable
       Policies:
-        - DynamoDBReadPolicy:
+        - DynamoDBCrudPolicy:
             TableName: !Ref PokemonTable
       Events:
         RegisterPurchase:
@@ -410,7 +402,7 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref PokemonTable
       Events:
-        CreatePokemon:
+        CreatePokemon: # Note: l'ID d'Event s'appelait CreatePokemon mais cible /users dans ton template
           Type: Api
           Properties:
             RestApiId: !Ref PokedexGauvainApi
@@ -428,46 +420,6 @@ Resources:
     Properties:
       LogGroupName: !Sub /aws/lambda/${CreateUserLambda}
       RetentionInDays: !Ref LambdaLogRetentionDays
-
-  # ####################################################################################################################
-  # COGNITO (MACHINE TO MACHINE OAUTH)
-  # ####################################################################################################################
-  PokedexUserPool:
-    Type: AWS::Cognito::UserPool
-    Properties:
-      UserPoolName: !Sub ${AWS::StackName}-m2m-pool
-
-  PokedexUserPoolDomain:
-    Type: AWS::Cognito::UserPoolDomain
-    Properties:
-      Domain: !Sub pokedex-m2m-${AWS::AccountId}
-      UserPoolId: !Ref PokedexUserPool
-
-  PokedexResourceServer:
-    Type: AWS::Cognito::UserPoolResourceServer
-    Properties:
-      Identifier: api.pokedex.m2m
-      Name: Pokedex M2M Resource Server
-      UserPoolId: !Ref PokedexUserPool
-      Scopes:
-        - ScopeName: read
-          ScopeDescription: Read access to the Pokedex API
-        - ScopeName: write
-          ScopeDescription: Write access to the Pokedex API
-
-  PokedexUserPoolClientM2M:
-    Type: AWS::Cognito::UserPoolClient
-    DependsOn: PokedexResourceServer
-    Properties:
-      ClientName: !Sub ${AWS::StackName}-m2m-client
-      UserPoolId: !Ref PokedexUserPool
-      GenerateSecret: true
-      AllowedOAuthFlowsUserPoolClient: true
-      AllowedOAuthFlows:
-        - client_credentials
-      AllowedOAuthScopes:
-        - api.pokedex.m2m/read
-        - api.pokedex.m2m/write
 
 Outputs:
   PokedexGauvainApiEndpointUrl:

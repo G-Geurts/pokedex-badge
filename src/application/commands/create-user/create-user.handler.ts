@@ -30,7 +30,7 @@ export class CreateUserHandler implements ICommandHandler<CreateUserCommand, Use
             sk: 'PROFILE',
             gsi1pk: `PROFILE#${shardId}`,
             gsi1sk: `USR#${uuid}`,
-            id: randomUUID(),
+            id: uuid,
             createdAt: now,
             updatedAt: now
         });

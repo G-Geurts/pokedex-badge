@@ -1,4 +1,4 @@
-import { PutCommand, QueryCommand, QueryCommandOutput } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, GetCommandOutput, PutCommand, QueryCommand, QueryCommandOutput } from '@aws-sdk/lib-dynamodb';
 import { UserAggregate, userSchema } from '@domain/aggregates/user.aggregate';
 import { IUserRepository } from '@domain/ports/user.repository.port';
 import { type DynamoDBDocument, DynamoDBDocumentToken } from '@garance-retraite/aws/dynamodb';
@@ -36,6 +36,18 @@ export class DynamoDBUserRepository implements IUserRepository {
         const output: QueryCommandOutput[] = await Promise.all(queries);
         const results = output.flatMap((row: QueryCommandOutput) => row.Items ?? []);
         return results.map((pkm): UserAggregate => userSchema.parse(pkm));
+    }
+
+    public async getUser(userId: string): Promise<UserAggregate | undefined> {
+        const cmd: GetCommand = new GetCommand({
+            TableName: this.tableName,
+            Key: {
+                pk: `USR#${userId}`,
+                sk: `PROFILE`
+            }
+        });
+        const output: GetCommandOutput = await this.client.send(cmd);
+        return !output.Item ? undefined : userSchema.parse(output.Item);
     }
 
     public async save(user: UserAggregate): Promise<void> {

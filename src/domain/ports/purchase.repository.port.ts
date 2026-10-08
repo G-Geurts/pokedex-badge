@@ -1,7 +1,7 @@
-import type { PokemonAggregate } from '@domain/aggregates/pokemon.aggregate';
+import type { PurchaseAggregate } from '@domain/aggregates/purchase.aggregate';
 
 export interface IPurchaseRepository {
-    save: (purchase: PokemonAggregate) => Promise<void>;
+    save: (purchase: PurchaseAggregate) => Promise<void>;
 }
 
-export const PokemonRepositoryToken = Symbol.for('PokemonRepository');
+export const PurchaseRepositoryToken = Symbol.for('PurchaseRepository');
