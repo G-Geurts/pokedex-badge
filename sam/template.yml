@@ -3,36 +3,17 @@ Transform:
   - AWS::LanguageExtensions
   - AWS::Serverless-2016-10-31
 
-Description: Stack SAM for the pokedex-gauvain domain.
+Description: Stack pokedex-gauvain event.
 
 Parameters:
   UserPoolArnParameter:
     Type: AWS::SSM::Parameter::Value<String>
     Default: /pokedex-gauvain/auth/user-pool-arn
     Description: SSM Parameter path containing the Cognito User Pool ARN
-
-  AllowedHeaders:
-    Type: String
-    Description: CORS allowed headers for API Gateway
-  AllowedOrigins:
-    Type: String
-    Description: CORS allowed origins for API Gateway
-  ApiGatewayAccessLogFormat:
-    Type: String
-    Description: Format in which API Gateway Access Logs are written to CloudWatch
-  ApiGatewayDomainName:
-    Type: String
-    Default: ''
-    Description: Custom domain name for API Gateway (leave empty to skip base path mapping)
-  ApiName:
-    Type: String
-    Description: Name of the API Gateway REST API
-  ApiPathName:
-    Type: String
-    Description: Base path segment for API URLs
-  ApiStageName:
-    Type: String
-    Description: Deployment stage name for API Gateway
+  EventBusNameParameter:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /pokedex-gauvain/events/bus-name
+    Description: SSM Parameter path containing the EventBus name
   DataDeletionPolicy:
     Type: String
     Description: Politique de suppression des données
@@ -40,10 +21,22 @@ Parameters:
     AllowedValues:
       - Retain
       - Delete
-  LambdaLogRetentionDays:
-    Type: Number
-    Description: Number of days to retain Lambda function logs
-    Default: 30
+  AllowedHeaders:
+    Type: String
+    Default: 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'
+    Description: CORS allowed headers for API Gateway
+  AllowedOrigins:
+    Type: String
+    Default: '*'
+    Description: CORS allowed origins for API Gateway
+  ApiName:
+    Type: String
+    Default: PokedexLevelApi
+    Description: Name of the API Gateway REST API
+  ApiStageName:
+    Type: String
+    Default: prod
+    Description: Deployment stage name for API Gateway
   LoggerLevel:
     Description: Niveau de log applicatif des Lambdas
     Type: String
@@ -64,12 +57,6 @@ Parameters:
     AllowedValues:
       - nodejs22.x
       - nodejs24.x
-
-Conditions:
-  IsDomainNameSet: !Not
-    - !Equals
-      - !Ref ApiGatewayDomainName
-      - ''
 
 Globals:
   Function:
@@ -92,17 +79,7 @@ Globals:
     Tracing: Active
 
 Resources:
-  DependenciesLayer:
-    Type: AWS::Serverless::LayerVersion
-    DeletionPolicy: Delete
-    Properties:
-      CompatibleRuntimes:
-        - !Ref NodeVersion
-      ContentUri: ../dist/layer
-      RetentionPolicy: Delete
-      LayerName: !Sub ${AWS::StackName}-DependenciesLayer
-
-  PokemonTable:
+  UserLevelTable:
     Type: AWS::DynamoDB::Table
     DeletionPolicy: !Ref DataDeletionPolicy
     UpdateReplacePolicy: !Ref DataDeletionPolicy
@@ -118,19 +95,6 @@ Resources:
           AttributeType: S
         - AttributeName: sk
           AttributeType: S
-        - AttributeName: gsi1pk
-          AttributeType: S
-        - AttributeName: gsi1sk
-          AttributeType: S
-      GlobalSecondaryIndexes:
-        - IndexName: gsi1
-          KeySchema:
-            - AttributeName: gsi1pk
-              KeyType: HASH
-            - AttributeName: gsi1sk
-              KeyType: RANGE
-          Projection:
-            ProjectionType: ALL
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
       SSESpecification:
@@ -141,7 +105,17 @@ Resources:
         - Key: garance:cloudformation:stack-name
           Value: !Ref AWS::StackName
 
-  PokedexGauvainApi:
+  DependenciesLayer:
+    Type: AWS::Serverless::LayerVersion
+    DeletionPolicy: Delete
+    Properties:
+      CompatibleRuntimes:
+        - !Ref NodeVersion
+      ContentUri: ../dist/layer
+      RetentionPolicy: Delete
+      LayerName: !Sub ${AWS::StackName}-DependenciesLayer
+
+  PokedexLevelApi:
     Type: AWS::Serverless::Api
     Properties:
       Name: !Ref ApiName
@@ -149,13 +123,9 @@ Resources:
       TracingEnabled: true
       EndpointConfiguration:
         Type: REGIONAL
-      AccessLogSetting:
-        DestinationArn: !GetAtt PokedexGauvainApiAccessLogGroup.Arn
-        Format: !Ref ApiGatewayAccessLogFormat
       Auth:
         Authorizers:
           CognitoM2MAuthorizer:
-            # Récupération de l'ARN depuis le paramètre SSM
             UserPoolArn: !Ref UserPoolArnParameter
       Cors:
         AllowHeaders: !Sub "'${AllowedHeaders}'"
@@ -179,32 +149,13 @@ Resources:
           ThrottlingBurstLimit: 200
           ThrottlingRateLimit: 100
 
-  PokedexGauvainApiAccessLogGroup:
-    Type: AWS::Logs::LogGroup
-    DeletionPolicy: Delete
-    UpdateReplacePolicy: Retain
-    Properties:
-      RetentionInDays: 365
-      Tags:
-        - Key: garance:cloudformation:stack-name
-          Value: !Ref AWS::StackName
-
-  PokedexGauvainBasePathMapping:
-    Type: AWS::ApiGateway::BasePathMapping
-    Condition: IsDomainNameSet
-    Properties:
-      BasePath: !Sub '${ApiPathName}/${ApiStageName}'
-      DomainName: !Ref ApiGatewayDomainName
-      RestApiId: !Ref PokedexGauvainApi
-      Stage: !Ref PokedexGauvainApi.Stage
-
-  GetPokemonLambda:
+  GetUserLevelLambda:
     Type: AWS::Serverless::Function
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
         EntryPoints:
-          - adapters/primary/serverless/get-pokemon-list.ts
+          - adapters/primary/serverless/get-user-level.ts
         Minify: !Ref MinifyingEnabled
         Target: es2024
         Sourcemap: inline
@@ -222,118 +173,81 @@ Resources:
           - 'reflect-metadata'
           - 'zod'
     Properties:
-      Handler: get-pokemon-list.handler
+      Handler: get-user-level.handler
       Environment:
         Variables:
-          POKEMON_TABLE_NAME: !Ref PokemonTable
+          POKEMON_TABLE_NAME: !Ref UserLevelTable
       Policies:
-        - DynamoDBReadPolicy:
-            TableName: !Ref PokemonTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:Query
+                - dynamodb:Scan
+              Resource:
+                - !GetAtt UserLevelTable.Arn
+                - !Sub "${UserLevelTable.Arn}/index/*"
       Events:
-        GetPokemon:
+        GetData:
           Type: Api
           Properties:
-            RestApiId: !Ref PokedexGauvainApi
-            Path: /pokemons
+            RestApiId: !Ref PokedexLevelApi
+            Path: /users/{userId}/level
             Method: GET
             Auth:
               Authorizer: CognitoM2MAuthorizer
               AuthorizationScopes:
                 - api.pokedex.m2m/read
 
-  GetUsersLambda:
-    Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        EntryPoints:
-          - adapters/primary/serverless/get-users-list.ts
-        Minify: !Ref MinifyingEnabled
-        Target: es2024
-        Sourcemap: inline
-        Format: esm
-        OutExtension:
-          - .js=.mjs
-        External:
-          - '@aws-sdk/*'
-          - '@aws-lambda-powertools/*'
-          - '@garance-retraite/*'
-          - '@aws-smithy/*'
-          - '@smithy/*'
-          - 'aws-lambda'
-          - 'inversify'
-          - 'reflect-metadata'
-          - 'zod'
+  PurchaseDLQ:
+    Type: AWS::SQS::Queue
     Properties:
-      Handler: get-users-list.handler
-      Environment:
-        Variables:
-          POKEMON_TABLE_NAME: !Ref PokemonTable
-      Policies:
-        - DynamoDBReadPolicy:
-            TableName: !Ref PokemonTable
-      Events:
-        GetUsers:
-          Type: Api
-          Properties:
-            RestApiId: !Ref PokedexGauvainApi
-            Path: /users
-            Method: GET
-            Auth:
-              Authorizer: CognitoM2MAuthorizer
-              AuthorizationScopes:
-                - api.pokedex.m2m/read
+      MessageRetentionPeriod: 1209600
 
-  RegisterPurchaseLambda:
-    Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        EntryPoints:
-          - adapters/primary/serverless/register-purchase.ts
-        Minify: !Ref MinifyingEnabled
-        Target: es2024
-        Sourcemap: inline
-        Format: esm
-        OutExtension:
-          - .js=.mjs
-        External:
-          - '@aws-sdk/*'
-          - '@aws-lambda-powertools/*'
-          - '@garance-retraite/*'
-          - '@aws-smithy/*'
-          - '@smithy/*'
-          - 'aws-lambda'
-          - 'inversify'
-          - 'reflect-metadata'
-          - 'zod'
+  PurchaseQueue:
+    Type: AWS::SQS::Queue
     Properties:
-      Handler: register-purchase.handler
-      Environment:
-        Variables:
-          POKEMON_TABLE_NAME: !Ref PokemonTable
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref PokemonTable
-      Events:
-        RegisterPurchase:
-          Type: Api
-          Properties:
-            RestApiId: !Ref PokedexGauvainApi
-            Path: /users/{userId}/purchases
-            Method: POST
-            Auth:
-              Authorizer: CognitoM2MAuthorizer
-              AuthorizationScopes:
-                - api.pokedex.m2m/write
+      VisibilityTimeout: 90
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt PurchaseDLQ.Arn
+        maxReceiveCount: 3
 
-  CreatePokemonLambda:
+  PurchaseEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: !Ref EventBusNameParameter
+      EventPattern:
+        source:
+          - fr.pokemon.referential
+        detail-type:
+          - purchase.completed
+      Targets:
+        - Arn: !GetAtt PurchaseQueue.Arn
+          Id: "PurchaseQueueTarget"
+
+  PurchaseQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref PurchaseQueue
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt PurchaseQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt PurchaseEventRule.Arn
+
+  ProcessPurchaseLambda:
     Type: AWS::Serverless::Function
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
         EntryPoints:
-          - adapters/primary/serverless/create-pokemon.ts
+          - adapters/primary/serverless/consume-purchase-event.ts
         Minify: !Ref MinifyingEnabled
         Target: es2024
         Sourcemap: inline
@@ -351,87 +265,23 @@ Resources:
           - 'reflect-metadata'
           - 'zod'
     Properties:
-      Handler: create-pokemon.handler
+      Handler: consume-purchase-event.handler
       Environment:
         Variables:
-          POKEMON_TABLE_NAME: !Ref PokemonTable
+          POKEMON_TABLE_NAME: !Ref UserLevelTable
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref PokemonTable
+            TableName: !Ref UserLevelTable
       Events:
-        CreatePokemon:
-          Type: Api
+        SQSMessage:
+          Type: SQS
           Properties:
-            RestApiId: !Ref PokedexGauvainApi
-            Path: /pokemons
-            Method: POST
-            Auth:
-              Authorizer: CognitoM2MAuthorizer
-              AuthorizationScopes:
-                - api.pokedex.m2m/write
-
-  CreateUserLambda:
-    Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        EntryPoints:
-          - adapters/primary/serverless/create-user.ts
-        Minify: !Ref MinifyingEnabled
-        Target: es2024
-        Sourcemap: inline
-        Format: esm
-        OutExtension:
-          - .js=.mjs
-        External:
-          - '@aws-sdk/*'
-          - '@aws-lambda-powertools/*'
-          - '@garance-retraite/*'
-          - '@aws-smithy/*'
-          - '@smithy/*'
-          - 'aws-lambda'
-          - 'inversify'
-          - 'reflect-metadata'
-          - 'zod'
-    Properties:
-      Handler: create-user.handler
-      Environment:
-        Variables:
-          POKEMON_TABLE_NAME: !Ref PokemonTable
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref PokemonTable
-      Events:
-        CreatePokemon: # Note: l'ID d'Event s'appelait CreatePokemon mais cible /users dans ton template
-          Type: Api
-          Properties:
-            RestApiId: !Ref PokedexGauvainApi
-            Path: /users
-            Method: POST
-            Auth:
-              Authorizer: CognitoM2MAuthorizer
-              AuthorizationScopes:
-                - api.pokedex.m2m/write
-
-  CreateUserLambdaLogGroup:
-    Type: AWS::Logs::LogGroup
-    DeletionPolicy: Delete
-    UpdateReplacePolicy: Delete
-    Properties:
-      LogGroupName: !Sub /aws/lambda/${CreateUserLambda}
-      RetentionInDays: !Ref LambdaLogRetentionDays
+            Queue: !GetAtt PurchaseQueue.Arn
+            BatchSize: 10
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
 
 Outputs:
-  PokedexGauvainApiEndpointUrl:
-    Description: API Endpoint (custom domain)
-    Condition: IsDomainNameSet
-    Value: !Sub https://${ApiGatewayDomainName}/${ApiPathName}/${ApiStageName}
-  PokedexGauvainApiExecuteUrl:
+  PokedexLevelApiExecuteUrl:
     Description: API execute URL
-    Value: !Sub ${PokedexGauvainApi}.execute-api.${AWS::Region}.amazonaws.com
-  PokedexGauvainApiId:
-    Description: API ID
-    Value: !Ref PokedexGauvainApi
-  PokemonTableName:
-    Description: DynamoDB Pokemon table name
-    Value: !Ref PokemonTable
+    Value: !Sub https://${PokedexLevelApi}.execute-api.${AWS::Region}.amazonaws.com/${ApiStageName}

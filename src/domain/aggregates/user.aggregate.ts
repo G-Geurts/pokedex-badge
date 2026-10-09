@@ -1,25 +1,28 @@
 import { z } from 'zod';
 
-export const userSchema = z.object({
+export const userLevelSchema = z.object({
     pk: z.string(),
     sk: z.string(),
-    gsi1pk: z.string(),
-    gsi1sk: z.string(),
-    id: z.uuid(),
-    name: z.string().min(1).max(50),
-    createdAt: z.number().int().nonnegative(),
-    updatedAt: z.number().int().nonnegative()
+    level: z.number(),
+    point: z.number(),
+    updatedAt: z.string(),
 });
 
-export const newUserSchema = userSchema.omit({
-    pk: true,
-    sk: true,
-    gsi1pk: true,
-    gsi1sk: true,
-    id: true,
-    createdAt: true,
-    updatedAt: true
+export const userPurchaseSchema = z.object({
+    pk: z.string(),
+    sk: z.string(),
+    pokemonId: z.string(),
+    occurredAt: z.string()
 });
 
-export type UserAggregate = z.infer<typeof userSchema>;
-export type NewUser = z.infer<typeof newUserSchema>;
+export const userPurchaseInputSchema = z.object({
+    eventVersion: z.string(),
+    purchaseId: z.string(),
+    userId: z.string(),
+    pokemonId: z.string(),
+    occurredAt: z.string()
+});
+
+export type UserLevelAggregate = z.infer<typeof userLevelSchema>;
+export type UserPurchaseAggregate = z.infer<typeof userPurchaseSchema>;
+export type UserPurchaseInputAggregate = z.infer<typeof userPurchaseInputSchema>;

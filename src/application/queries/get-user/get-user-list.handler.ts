@@ -1,18 +1,23 @@
-import { UserAggregate } from '@domain/aggregates/user.aggregate';
-import { IUserRepository, UserRepositoryToken } from '@domain/ports/user.repository.port';
+import { UserLevelAggregate } from '@domain/aggregates/user.aggregate';
+import { UserNotFoundError } from '@domain/errors/user.errors';
+import { IUserLevelRepository, UserLevelRepositoryToken } from '@domain/ports/user.repository.port';
 import { type IQueryHandler, QueryHandler } from '@garance-retraite/backend-core/cqs';
 import { inject } from 'inversify';
 
-import { GetUserListQuery } from './get-user-list.query';
+import { GetUserLevelQuery } from './get-user-level.query';
 
-@QueryHandler(GetUserListQuery)
-export class GetUserListHandler implements IQueryHandler<GetUserListQuery, UserAggregate[]> {
+@QueryHandler(GetUserLevelQuery)
+export class GetUserListHandler implements IQueryHandler<GetUserLevelQuery, UserLevelAggregate> {
     public constructor(
-        @inject(UserRepositoryToken)
-        private readonly repository: IUserRepository
+        @inject(UserLevelRepositoryToken)
+        private readonly repository: IUserLevelRepository
     ) {}
 
-    public async execute(): Promise<UserAggregate[]> {
-        return await this.repository.getUserList();
+    public async execute(query: GetUserLevelQuery): Promise<UserLevelAggregate> {
+        const user: UserLevelAggregate | undefined = await this.repository.getUserLevel(query.userId);
+        if (!user) {
+            throw new UserNotFoundError(`User [${query.userId}] not found`);
+        }
+        return user;
     }
 }

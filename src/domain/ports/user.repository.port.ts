@@ -1,9 +1,9 @@
-import type { UserAggregate } from '@domain/aggregates/user.aggregate';
+import type { UserLevelAggregate, UserPurchaseAggregate } from '@domain/aggregates/user.aggregate';
 
-export interface IUserRepository {
-    getUserList: () => Promise<UserAggregate[]>;
-    getUser: (userId: string) => Promise<UserAggregate | undefined>;
-    save: (user: UserAggregate) => Promise<void>;
+export interface IUserLevelRepository {
+    getUserLevel(userId: string): Promise<UserLevelAggregate | undefined>;
+    getPurchase(userId: string, purchaseId: string): Promise<UserPurchaseAggregate | undefined>;
+    save: (user: UserPurchaseAggregate | UserLevelAggregate) => Promise<void>;
 }
 
-export const UserRepositoryToken = Symbol.for('UserRepository');
+export const UserLevelRepositoryToken = Symbol.for('UserLevelRepository');
