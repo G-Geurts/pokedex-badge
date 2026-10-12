@@ -1,0 +1,75 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "garance-domain-pokedex-gauvain-event",
+    "version": "0.1.0"
+  },
+  "servers": [
+    {
+      "url": "https://{apiId}.execute-api.{region}.amazonaws.com/{stage}",
+      "variables": {
+        "apiId": {
+          "default": "API_ID",
+          "description": "<Api>ApiId dans <stack>.outputs"
+        },
+        "region": {
+          "default": "eu-west-1"
+        },
+        "stage": {
+          "default": "v1"
+        }
+      }
+    }
+  ],
+  "paths": {
+    "/users/{userId}/level": {
+      "get": {
+        "operationId": "GetUserLevelLambda",
+        "summary": "Get Users level",
+        "description": "Retrieves Users level",
+        "tags": [
+          "Users"
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Users level",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "pk": {
+                      "type": "string"
+                    },
+                    "sk": {
+                      "type": "string"
+                    },
+                    "point": {
+                      "default": 0,
+                      "type": "number"
+                    },
+                    "updatedAt": {
+                      "type": "number"
+                    },
+                    "level": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "pk",
+                    "sk",
+                    "point",
+                    "updatedAt",
+                    "level"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
