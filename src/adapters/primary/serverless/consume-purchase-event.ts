@@ -1,6 +1,6 @@
 import { RegisterPurchaseCommand } from '@application/commands/register-purchase/register-purchase.command';
 import { Logger } from '@aws-lambda-powertools/logger';
-import { userPurchaseInputSchema } from '@domain/aggregates/user.aggregate';
+import { type UserPurchaseInputAggregate, userPurchaseInputSchema } from '@domain/aggregates/user.aggregate';
 import { CommandBusToken, type ICommandBus } from '@garance-retraite/backend-core/cqs';
 import { createSqsBatchHandler, type SqsRecordHandler } from '@garance-retraite/backend-core/handlers/lambda';
 import { parseSqsJsonBody } from '@garance-retraite/backend-core/parser/aws';
@@ -17,10 +17,10 @@ export class ConsumePurchaseEventsLambda implements SqsRecordHandler {
 
     public async handleRecord(record: SQSRecord): Promise<void> {
         const ebEvent = JSON.parse(record.body) as EventBridgeEvent<string, unknown>;
-        const payload =
+        const payload: UserPurchaseInputAggregate =
             typeof ebEvent.detail === 'string'
                 ? parseSqsJsonBody(ebEvent.detail, userPurchaseInputSchema)
-                : ebEvent.detail;
+                : (ebEvent.detail as UserPurchaseInputAggregate);
         await this.commandBus.execute(new RegisterPurchaseCommand(payload));
     }
 }
