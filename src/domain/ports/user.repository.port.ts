@@ -2,8 +2,8 @@ import type { UserLevelAggregate, UserPurchaseAggregate } from '@domain/aggregat
 
 export interface IUserLevelRepository {
     getUserLevel(userId: string): Promise<UserLevelAggregate | undefined>;
-    getPurchase(userId: string, purchaseId: string): Promise<UserPurchaseAggregate | undefined>;
-    save: (user: UserPurchaseAggregate | UserLevelAggregate) => Promise<void>;
+    savePurchaseIfNotExist(purchase: UserPurchaseAggregate): Promise<boolean>;
+    incrementUserPoints(userId: string, pointsToAdd: number, updatedAt: number): Promise<UserLevelAggregate>;
 }
 
 export const UserLevelRepositoryToken = Symbol.for('UserLevelRepository');

@@ -6,14 +6,10 @@ Transform:
 Description: Stack pokedex-gauvain event.
 
 Parameters:
-  UserPoolArnParameter:
-    Type: AWS::SSM::Parameter::Value<String>
-    Default: /pokedex-gauvain/auth/user-pool-arn
-    Description: SSM Parameter path containing the Cognito User Pool ARN
-  EventBusNameParameter:
-    Type: AWS::SSM::Parameter::Value<String>
-    Default: /pokedex-gauvain/events/bus-name
-    Description: SSM Parameter path containing the EventBus name
+  Env:
+    Type: String
+    Default: dev
+    Description: Env name (dev, prod, test)
   DataDeletionPolicy:
     Type: String
     Description: Politique de suppression des données
@@ -57,6 +53,10 @@ Parameters:
     AllowedValues:
       - nodejs22.x
       - nodejs24.x
+  LambdaLogRetentionDays:
+    Type: Number
+    Description: Number of days to retain Lambda function logs
+    Default: 30
 
 Globals:
   Function:
@@ -126,7 +126,7 @@ Resources:
       Auth:
         Authorizers:
           CognitoM2MAuthorizer:
-            UserPoolArn: !Ref UserPoolArnParameter
+            UserPoolArn: !Sub '{{resolve:ssm:/pokedex-gauvain/${Env}/auth/user-pool-arn}}'
       Cors:
         AllowHeaders: !Sub "'${AllowedHeaders}'"
         AllowMethods: "'POST,GET,PUT,DELETE'"
@@ -186,7 +186,6 @@ Resources:
                 - dynamodb:Scan
               Resource:
                 - !GetAtt UserLevelTable.Arn
-                - !Sub "${UserLevelTable.Arn}/index/*"
       Events:
         GetData:
           Type: Api
@@ -199,10 +198,34 @@ Resources:
               AuthorizationScopes:
                 - api.pokedex.m2m/read
 
+  GetUserLevelLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${GetUserLevelLambda}
+      RetentionInDays: !Ref LambdaLogRetentionDays
+
   PurchaseDLQ:
     Type: AWS::SQS::Queue
     Properties:
       MessageRetentionPeriod: 1209600
+
+  PurchaseDLQPolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref PurchaseDLQ
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt PurchaseDLQ.Arn
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub 'arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/*'
 
   PurchaseQueue:
     Type: AWS::SQS::Queue
@@ -215,7 +238,7 @@ Resources:
   PurchaseEventRule:
     Type: AWS::Events::Rule
     Properties:
-      EventBusName: !Ref EventBusNameParameter
+      EventBusName: !Sub '{{resolve:ssm:/pokedex-gauvain/${Env}/events/bus-name}}'
       EventPattern:
         source:
           - fr.pokemon.referential
@@ -223,7 +246,9 @@ Resources:
           - purchase.completed
       Targets:
         - Arn: !GetAtt PurchaseQueue.Arn
-          Id: "PurchaseQueueTarget"
+          Id: 'PurchaseQueueTarget'
+          DeadLetterConfig:
+            Arn: !GetAtt PurchaseDLQ.Arn
 
   PurchaseQueuePolicy:
     Type: AWS::SQS::QueuePolicy
@@ -238,8 +263,8 @@ Resources:
             Action: sqs:SendMessage
             Resource: !GetAtt PurchaseQueue.Arn
             Condition:
-              ArnEquals:
-                aws:SourceArn: !GetAtt PurchaseEventRule.Arn
+              ArnLike:
+                aws:SourceArn: !Sub 'arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/*'
 
   ProcessPurchaseLambda:
     Type: AWS::Serverless::Function
@@ -270,8 +295,13 @@ Resources:
         Variables:
           POKEMON_TABLE_NAME: !Ref UserLevelTable
       Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref UserLevelTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+              Resource:
+                - !GetAtt UserLevelTable.Arn
       Events:
         SQSMessage:
           Type: SQS
@@ -280,6 +310,14 @@ Resources:
             BatchSize: 10
             FunctionResponseTypes:
               - ReportBatchItemFailures
+
+  ProcessPurchaseLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ProcessPurchaseLambda}
+      RetentionInDays: !Ref LambdaLogRetentionDays
 
 Outputs:
   PokedexLevelApiExecuteUrl:

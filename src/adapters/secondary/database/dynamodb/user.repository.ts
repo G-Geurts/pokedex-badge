@@ -1,9 +1,10 @@
-import { GetCommand, GetCommandOutput, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { ConditionalCheckFailedException } from '@aws-sdk/client-dynamodb';
+import { GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
+    toUserLevelAggregate,
     UserLevelAggregate,
-    userLevelSchema,
-    UserPurchaseAggregate,
-    userPurchaseSchema
+    userLevelRecordSchema,
+    UserPurchaseAggregate
 } from '@domain/aggregates/user.aggregate';
 import { IUserLevelRepository } from '@domain/ports/user.repository.port';
 import { type DynamoDBDocument, DynamoDBDocumentToken } from '@garance-retraite/aws/dynamodb';
@@ -22,39 +23,79 @@ export class DynamoDBUserRepository implements IUserLevelRepository {
     ) {
         this.tableName = environmentService.getEnvironment('POKEMON_TABLE_NAME');
     }
+
+    private normalizeUserId(userId: string): string {
+        return userId.startsWith('USR#') ? userId : `USR#${userId}`;
+    }
+
     public async getUserLevel(userId: string): Promise<UserLevelAggregate | undefined> {
-
-        userId = userId.startsWith('USR#') ? userId : `USR#${userId}`;
-
-        const cmd: GetCommand = new GetCommand({
+        const pk = this.normalizeUserId(userId);
+        const cmd = new GetCommand({
             TableName: this.tableName,
             Key: {
-                pk: userId,
-                sk: `LEVEL`
+                pk,
+                sk: 'LEVEL'
             }
         });
-        const output: GetCommandOutput = await this.client.send(cmd);
-        return !output.Item ? undefined : userLevelSchema.parse(output.Item);
+        const output = await this.client.send(cmd);
+        if (!output.Item) {
+            return undefined;
+        }
+
+        const record = userLevelRecordSchema.parse(output.Item);
+        return toUserLevelAggregate(record);
     }
 
-    public async getPurchase(userId: string, purchaseId: string): Promise<UserPurchaseAggregate | undefined> {
-        const cmd: GetCommand = new GetCommand({
+    public async savePurchaseIfNotExist(purchase: UserPurchaseAggregate): Promise<boolean> {
+        try {
+            await this.client.send(
+                new PutCommand({
+                    TableName: this.tableName,
+                    Item: {
+                        ...purchase,
+                        pk: this.normalizeUserId(purchase.pk)
+                    },
+                    ConditionExpression: 'attribute_not_exists(pk) AND attribute_not_exists(sk)'
+                })
+            );
+            return true;
+        } catch (error: unknown) {
+            if (error instanceof ConditionalCheckFailedException) {
+                return false;
+            }
+            throw error;
+        }
+    }
+
+    public async incrementUserPoints(
+        userId: string,
+        pointsToAdd: number,
+        updatedAt: number
+    ): Promise<UserLevelAggregate> {
+        const pk = this.normalizeUserId(userId);
+
+        const updateCmd = new UpdateCommand({
             TableName: this.tableName,
             Key: {
-                pk: userId,
-                sk: `PURCHASE#${purchaseId}`,
-            }
+                pk,
+                sk: 'LEVEL'
+            },
+            UpdateExpression: 'SET #point = if_not_exists(#point, :zero) + :incr, #updatedAt = :updatedAt',
+            ExpressionAttributeNames: {
+                '#point': 'point',
+                '#updatedAt': 'updatedAt'
+            },
+            ExpressionAttributeValues: {
+                ':zero': 0,
+                ':incr': pointsToAdd,
+                ':updatedAt': updatedAt
+            },
+            ReturnValues: 'ALL_NEW'
         });
-        const output: GetCommandOutput = await this.client.send(cmd);
-        return !output.Item ? undefined : userPurchaseSchema.parse(output.Item);
-    }
 
-    public async save(input: UserPurchaseAggregate | UserLevelAggregate): Promise<void> {
-        await this.client.send(
-            new PutCommand({
-                TableName: this.tableName,
-                Item: input
-            })
-        );
+        const result = await this.client.send(updateCmd);
+        const record = userLevelRecordSchema.parse(result.Attributes);
+
+        return toUserLevelAggregate(record);
     }
 }

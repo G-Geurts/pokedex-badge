@@ -1,7 +1,5 @@
 import type { Logger } from '@aws-lambda-powertools/logger';
 import {
-    UserLevelAggregate,
-    userLevelSchema,
     UserPurchaseAggregate,
     UserPurchaseInputAggregate,
     userPurchaseInputSchema,
@@ -25,37 +23,25 @@ export class RegisterPurchaseHandler implements ICommandHandler<RegisterPurchase
 
     public async execute(command: RegisterPurchaseCommand): Promise<UserPurchaseAggregate> {
         const input: UserPurchaseInputAggregate = userPurchaseInputSchema.parse(command.purchase);
-        let userLevel: UserLevelAggregate | undefined = await this.userLevelRepository.getUserLevel(input.userId);
-        let purchase: UserPurchaseAggregate | undefined = undefined;
-        if (userLevel) {
-            purchase = await this.userLevelRepository.getPurchase(input.userId, input.purchaseId);
-        }
-        let added = false;
-        if (!purchase) {
-            purchase = userPurchaseSchema.parse({
-                pk: input.userId,
-                sk: `PURCHASE#${input.purchaseId}`,
-                pokemonId: input.pokemonId,
-                occurredAt: input.occurredAt
-            });
 
-            await this.userLevelRepository.save(purchase);
-            added = true;
-        }
-        if (added) {
-            userLevel = userLevelSchema.parse({
-                pk: userLevel?.pk ?? input.userId,
-                sk: 'LEVEL',
-                level: userLevel?.level ?? 0,
-                point: userLevel?.point ?? 0,
-                updatedAt: input.occurredAt
-            });
-            userLevel.point += 10;
-            userLevel.level += userLevel.point % 100 == 0 ? 1 : 0;
-            await this.userLevelRepository.save(userLevel);
+        const purchase = userPurchaseSchema.parse({
+            pk: input.userId,
+            sk: `PURCHASE#${input.purchaseId}`,
+            pokemonId: input.pokemonId,
+            occurredAt: input.occurredAt
+        });
 
-            this.logger.info(`Registered user [${userLevel.pk}] level: ${String(userLevel.level)}`);
+        const isNewPurchase = await this.userLevelRepository.savePurchaseIfNotExist(purchase);
+        if (!isNewPurchase) {
+            this.logger.info(`Purchase [${input.purchaseId}] already processed for user [${input.userId}].`);
+            return purchase;
         }
+        const updatedLevel = await this.userLevelRepository.incrementUserPoints(input.userId, 10, input.occurredAt);
+
+        this.logger.info(
+            `Registered user [${updatedLevel.pk}] level: ${String(updatedLevel.level)} (${String(updatedLevel.point)} pts)`
+        );
+
         return purchase;
     }
 }

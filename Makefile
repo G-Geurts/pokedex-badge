@@ -15,8 +15,8 @@ apiGatewayAccessLogFormat=$(shell aws ssm get-parameter --region $(region) --nam
 allowedHeaders			?= Authorization,Content-Type,X-Amz-Date,X-Amz-Security-Token,X-Api-Key
 allowedOrigins			?= *
 apiDomainName			?=
-apiName					?= PokedexGauvain API
-apiPathName				?= pokedex-gauvain
+apiName					?= PokedexGauvainLevel API
+apiPathName				?= pokedex-gauvain-level
 apiStageName			?= v1
 minifyingEnabled		?= true
 # Les données d'une stack de PR sont jetables ; partout ailleurs la table survit à la stack.

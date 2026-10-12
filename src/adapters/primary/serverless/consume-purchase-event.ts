@@ -5,7 +5,7 @@ import { CommandBusToken, type ICommandBus } from '@garance-retraite/backend-cor
 import { createSqsBatchHandler, type SqsRecordHandler } from '@garance-retraite/backend-core/handlers/lambda';
 import { parseSqsJsonBody } from '@garance-retraite/backend-core/parser/aws';
 import { UserWriteModule } from '@infrastructure/ioc/user-write.module';
-import type { SQSRecord } from 'aws-lambda';
+import type { EventBridgeEvent, SQSRecord } from 'aws-lambda';
 import { inject, injectable } from 'inversify';
 
 @injectable()
@@ -16,7 +16,11 @@ export class ConsumePurchaseEventsLambda implements SqsRecordHandler {
     ) {}
 
     public async handleRecord(record: SQSRecord): Promise<void> {
-        const payload = parseSqsJsonBody(record.body, userPurchaseInputSchema);
+        const ebEvent = JSON.parse(record.body) as EventBridgeEvent<string, unknown>;
+        const payload =
+            typeof ebEvent.detail === 'string'
+                ? parseSqsJsonBody(ebEvent.detail, userPurchaseInputSchema)
+                : ebEvent.detail;
         await this.commandBus.execute(new RegisterPurchaseCommand(payload));
     }
 }

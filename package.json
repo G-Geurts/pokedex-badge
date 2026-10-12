@@ -1,7 +1,7 @@
 {
-    "name": "garance-domain-pokedex-gauvain",
+    "name": "garance-domain-pokedex-gauvain-event",
     "version": "0.1.0",
-    "description": "pokedex-gauvain domain",
+    "description": "pokedex-gauvain event",
     "private": true,
     "type": "module",
     "engines": {
@@ -38,6 +38,8 @@
         "@aws-lambda-powertools/logger": "^2",
         "@aws-lambda-powertools/parser": "^2",
         "@aws-lambda-powertools/tracer": "^2",
+        "@aws-sdk/client-dynamodb": "^3",
+        "@aws-sdk/lib-dynamodb": "^3",
         "@garance-retraite/aws": "^0.15.2",
         "@garance-retraite/backend-core": "^0.15.2",
         "inversify": "^8",
@@ -45,8 +47,6 @@
         "zod": "^4"
     },
     "devDependencies": {
-        "@aws-sdk/client-dynamodb": "^3",
-        "@aws-sdk/lib-dynamodb": "^3",
         "@commitlint/cli": "^21",
         "@garance-retraite/commitlint-config": "^0.15.2",
         "@garance-retraite/domain-tooling": "^0.15.1",
