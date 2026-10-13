@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "garance-domain-pokedex-gauvain-event",
+    "title": "garance-domain-pokedex-gauvain-badge",
     "version": "0.1.0"
   },
   "servers": [

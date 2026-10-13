@@ -27,7 +27,7 @@ Parameters:
     Description: CORS allowed origins for API Gateway
   ApiName:
     Type: String
-    Default: PokedexLevelApi
+    Default: PokedexBadgeApi
     Description: Name of the API Gateway REST API
   ApiStageName:
     Type: String
@@ -79,7 +79,7 @@ Globals:
     Tracing: Active
 
 Resources:
-  UserLevelTable:
+  UserBadgeTable:
     Type: AWS::DynamoDB::Table
     DeletionPolicy: !Ref DataDeletionPolicy
     UpdateReplacePolicy: !Ref DataDeletionPolicy
@@ -115,7 +115,7 @@ Resources:
       RetentionPolicy: Delete
       LayerName: !Sub ${AWS::StackName}-DependenciesLayer
 
-  PokedexLevelApi:
+  PokedexBadgeApi:
     Type: AWS::Serverless::Api
     Properties:
       Name: !Ref ApiName
@@ -129,7 +129,7 @@ Resources:
             UserPoolArn: !Sub '{{resolve:ssm:/pokedex-gauvain/${Env}/auth/user-pool-arn}}'
       Cors:
         AllowHeaders: !Sub "'${AllowedHeaders}'"
-        AllowMethods: "'POST,GET,PUT,DELETE'"
+        AllowMethods: "'POST,GET'"
         AllowOrigin: !Sub "'${AllowedOrigins}'"
         MaxAge: "'600'"
       GatewayResponses:
@@ -149,13 +149,13 @@ Resources:
           ThrottlingBurstLimit: 200
           ThrottlingRateLimit: 100
 
-  GetUserLevelLambda:
+  GetUserBadgeLambda:
     Type: AWS::Serverless::Function
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
         EntryPoints:
-          - adapters/primary/serverless/get-user-level.ts
+          - adapters/primary/serverless/get-user-badge.ts
         Minify: !Ref MinifyingEnabled
         Target: es2024
         Sourcemap: inline
@@ -173,106 +173,45 @@ Resources:
           - 'reflect-metadata'
           - 'zod'
     Properties:
-      Handler: get-user-level.handler
+      Handler: get-user-badge.handler
       Environment:
         Variables:
-          POKEMON_TABLE_NAME: !Ref UserLevelTable
+          POKEMON_TABLE_NAME: !Ref UserBadgeTable
       Policies:
         - Statement:
             - Effect: Allow
               Action:
                 - dynamodb:GetItem
                 - dynamodb:Query
-                - dynamodb:Scan
               Resource:
-                - !GetAtt UserLevelTable.Arn
+                - !GetAtt UserBadgeTable.Arn
       Events:
         GetData:
           Type: Api
           Properties:
-            RestApiId: !Ref PokedexLevelApi
-            Path: /users/{userId}/level
+            RestApiId: !Ref PokedexBadgeApi
+            Path: /users/{userId}/badges
             Method: GET
             Auth:
               Authorizer: CognitoM2MAuthorizer
               AuthorizationScopes:
                 - api.pokedex.m2m/read
 
-  GetUserLevelLambdaLogGroup:
+  GetUserBadgeLambdaLogGroup:
     Type: AWS::Logs::LogGroup
     DeletionPolicy: Delete
     UpdateReplacePolicy: Delete
     Properties:
-      LogGroupName: !Sub /aws/lambda/${GetUserLevelLambda}
+      LogGroupName: !Sub /aws/lambda/${GetUserBadgeLambda}
       RetentionInDays: !Ref LambdaLogRetentionDays
 
-  PurchaseDLQ:
-    Type: AWS::SQS::Queue
-    Properties:
-      MessageRetentionPeriod: 1209600
-
-  PurchaseDLQPolicy:
-    Type: AWS::SQS::QueuePolicy
-    Properties:
-      Queues:
-        - !Ref PurchaseDLQ
-      PolicyDocument:
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: events.amazonaws.com
-            Action: sqs:SendMessage
-            Resource: !GetAtt PurchaseDLQ.Arn
-            Condition:
-              ArnLike:
-                aws:SourceArn: !Sub 'arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/*'
-
-  PurchaseQueue:
-    Type: AWS::SQS::Queue
-    Properties:
-      VisibilityTimeout: 90
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt PurchaseDLQ.Arn
-        maxReceiveCount: 3
-
-  PurchaseEventRule:
-    Type: AWS::Events::Rule
-    Properties:
-      EventBusName: !Sub '{{resolve:ssm:/pokedex-gauvain/${Env}/events/bus-name}}'
-      EventPattern:
-        source:
-          - fr.pokemon.referential
-        detail-type:
-          - purchase.completed
-      Targets:
-        - Arn: !GetAtt PurchaseQueue.Arn
-          Id: 'PurchaseQueueTarget'
-          DeadLetterConfig:
-            Arn: !GetAtt PurchaseDLQ.Arn
-
-  PurchaseQueuePolicy:
-    Type: AWS::SQS::QueuePolicy
-    Properties:
-      Queues:
-        - !Ref PurchaseQueue
-      PolicyDocument:
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: events.amazonaws.com
-            Action: sqs:SendMessage
-            Resource: !GetAtt PurchaseQueue.Arn
-            Condition:
-              ArnLike:
-                aws:SourceArn: !Sub 'arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/*'
-
-  ProcessPurchaseLambda:
+  PostUserBadgeDecisionLambda:
     Type: AWS::Serverless::Function
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
         EntryPoints:
-          - adapters/primary/serverless/consume-purchase-event.ts
+          - adapters/primary/serverless/post-user-badge-decision.ts
         Minify: !Ref MinifyingEnabled
         Target: es2024
         Sourcemap: inline
@@ -290,10 +229,121 @@ Resources:
           - 'reflect-metadata'
           - 'zod'
     Properties:
-      Handler: consume-purchase-event.handler
+      Handler: get-user-badge.handler
       Environment:
         Variables:
-          POKEMON_TABLE_NAME: !Ref UserLevelTable
+          POKEMON_TABLE_NAME: !Ref UserBadgeTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserBadgeTable
+      Events:
+        GetData:
+          Type: Api
+          Properties:
+            RestApiId: !Ref PokedexBadgeApi
+            Path: /users/{userId}/badges/{badgeId}/decision
+            Method: GET
+            Auth:
+              Authorizer: CognitoM2MAuthorizer
+              AuthorizationScopes:
+                - api.pokedex.m2m/write
+
+  PostUserBadgeDecisionLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${PostUserBadgeDecisionLambda}
+      RetentionInDays: !Ref LambdaLogRetentionDays
+
+  BadgeDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+
+  BadgeDLQPolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref BadgeDLQ
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt BadgeDLQ.Arn
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub 'arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/*'
+
+  BadgeQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 90
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt BadgeDLQ.Arn
+        maxReceiveCount: 3
+
+  BadgeEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: !Sub '{{resolve:ssm:/pokedex-gauvain/${Env}/events/level-bus-name}}'
+      EventPattern:
+        source:
+          - fr.pokemon.levels
+        detail-type:
+          - level.reached
+      Targets:
+        - Arn: !GetAtt BadgeQueue.Arn
+          Id: 'BadgeQueueTarget'
+          DeadLetterConfig:
+            Arn: !GetAtt BadgeDLQ.Arn
+
+  BadgeQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref BadgeQueue
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt BadgeQueue.Arn
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub 'arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/*'
+
+  ProcessBadgeLambda:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - adapters/primary/serverless/consume-badge-event.ts
+        Minify: !Ref MinifyingEnabled
+        Target: es2024
+        Sourcemap: inline
+        Format: esm
+        OutExtension:
+          - .js=.mjs
+        External:
+          - '@aws-sdk/*'
+          - '@aws-lambda-powertools/*'
+          - '@garance-retraite/*'
+          - '@aws-smithy/*'
+          - '@smithy/*'
+          - 'aws-lambda'
+          - 'inversify'
+          - 'reflect-metadata'
+          - 'zod'
+    Properties:
+      Handler: consume-level-event.handler
+      Environment:
+        Variables:
+          POKEMON_TABLE_NAME: !Ref UserBadgeTable
       Policies:
         - Statement:
             - Effect: Allow
@@ -301,25 +351,25 @@ Resources:
                 - dynamodb:PutItem
                 - dynamodb:UpdateItem
               Resource:
-                - !GetAtt UserLevelTable.Arn
+                - !GetAtt UserBadgeTable.Arn
       Events:
         SQSMessage:
           Type: SQS
           Properties:
-            Queue: !GetAtt PurchaseQueue.Arn
+            Queue: !GetAtt BadgeQueue.Arn
             BatchSize: 10
             FunctionResponseTypes:
               - ReportBatchItemFailures
 
-  ProcessPurchaseLambdaLogGroup:
+  ProcessBadgeLambdaLogGroup:
     Type: AWS::Logs::LogGroup
     DeletionPolicy: Delete
     UpdateReplacePolicy: Delete
     Properties:
-      LogGroupName: !Sub /aws/lambda/${ProcessPurchaseLambda}
+      LogGroupName: !Sub /aws/lambda/${ProcessBadgeLambda}
       RetentionInDays: !Ref LambdaLogRetentionDays
 
 Outputs:
-  PokedexLevelApiExecuteUrl:
+  PokedexBadgeApiExecuteUrl:
     Description: API execute URL
-    Value: !Sub https://${PokedexLevelApi}.execute-api.${AWS::Region}.amazonaws.com/${ApiStageName}
+    Value: !Sub https://${PokedexBadgeApi}.execute-api.${AWS::Region}.amazonaws.com/${ApiStageName}
