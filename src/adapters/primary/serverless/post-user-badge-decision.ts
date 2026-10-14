@@ -5,10 +5,9 @@ import { CommandBusToken, type ICommandBus } from '@garance-retraite/backend-cor
 import { RequestValidationError } from '@garance-retraite/backend-core/errors';
 import { apiEndpoint, cors, createLambdaHandler } from '@garance-retraite/backend-core/handlers/lambda';
 import { type APIGatewayProxyResponse, HttpResponse } from '@garance-retraite/backend-core/http/response';
-import { createApiGatewayEventSchema } from '@garance-retraite/backend-core/parser/aws';
 import { BadgeDecisionModule } from '@infrastructure/ioc/badge-decision.module';
 import type { APIGatewayProxyEvent, Handler } from 'aws-lambda';
-import { inject } from 'inversify';
+import { inject, injectable } from 'inversify';
 import { z } from 'zod';
 
 const pathParametersSchema = z.object({
@@ -19,11 +18,6 @@ const pathParametersSchema = z.object({
 const bodySchema = z.object({
     decision: z.enum(['GRANTED', 'REFUSED']),
     reason: z.string().optional()
-});
-
-const postDecisionEventSchema = createApiGatewayEventSchema({
-    pathParameters: pathParametersSchema,
-    body: bodySchema
 });
 
 @cors()
@@ -42,16 +36,35 @@ export class PostUserBadgeDecisionLambda implements LambdaInterface {
     ) {}
 
     public async handler(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResponse<{ message: string }>> {
-        const parsed = postDecisionEventSchema.safeParse(event);
-        if (!parsed.success) {
-            throw new RequestValidationError('Invalid request payload', { issues: parsed.error.issues });
+        const pathParsed = pathParametersSchema.safeParse(event.pathParameters ?? {});
+        if (!pathParsed.success) {
+            throw new RequestValidationError('Invalid path parameters', { issues: pathParsed.error.issues });
         }
 
-        const { pathParameters, body } = parsed.data;
+        let rawBody: unknown;
+        try {
+            rawBody = event.body ? JSON.parse(event.body) : {};
+        } catch {
+            throw new RequestValidationError('Malformed JSON body', {
+                issues: [
+                    {
+                        code: 'custom',
+                        message: 'Request body must be a valid JSON string',
+                        path: ['body']
+                    }
+                ]
+            });
+        }
 
-        await this.commandBus.execute(
-            new DecideBadgeCommand(pathParameters.userId, pathParameters.badgeId, body.decision, body.reason)
-        );
+        const bodyParsed = bodySchema.safeParse(rawBody);
+        if (!bodyParsed.success) {
+            throw new RequestValidationError('Invalid request payload', { issues: bodyParsed.error.issues });
+        }
+
+        const { userId, badgeId } = pathParsed.data;
+        const { decision, reason } = bodyParsed.data;
+
+        await this.commandBus.execute(new DecideBadgeCommand(userId, badgeId, decision, reason));
 
         return HttpResponse.ok({ message: 'Decision submitted successfully' });
     }

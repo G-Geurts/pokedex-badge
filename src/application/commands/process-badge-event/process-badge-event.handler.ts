@@ -6,7 +6,7 @@ import {
     userBadgeRecordSchema
 } from '@domain/aggregates/badge.aggregate';
 import { BadgeRepositoryToken, type IBadgeRepository } from '@domain/ports/badge.repository.port';
-import { WorkflowStarterToken, type IWorkflowStarter } from '@domain/ports/workflow-starter.port';
+import { type IWorkflowStarter,WorkflowStarterToken } from '@domain/ports/workflow-starter.port';
 import { CommandHandler, type ICommandHandler } from '@garance-retraite/backend-core/cqs';
 import { LOGGER_TOKENS } from '@garance-retraite/backend-core/logger';
 import { inject } from 'inversify';
@@ -27,7 +27,7 @@ export class ProcessBadgeEventHandler implements ICommandHandler<ProcessBadgeEve
     public async execute(command: ProcessBadgeEventCommand): Promise<void> {
         const input: LevelReachedInputAggregate = levelReachedInputSchema.parse(command.payload);
 
-        const badgeId = `LEVEL_${input.level}`;
+        const badgeId = `LEVEL_${String(input.level)}`;
         const rawUserId = input.userId.replace(/^USR#/, '');
 
         const badgeRecord: UserBadgeRecord = userBadgeRecordSchema.parse({
