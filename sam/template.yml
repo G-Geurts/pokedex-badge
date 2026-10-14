@@ -3,7 +3,7 @@ Transform:
   - AWS::LanguageExtensions
   - AWS::Serverless-2016-10-31
 
-Description: Stack pokedex-gauvain event.
+Description: Stack pokedex-gauvain badges.
 
 Parameters:
   Env:
@@ -129,7 +129,7 @@ Resources:
             UserPoolArn: !Sub '{{resolve:ssm:/pokedex-gauvain/${Env}/auth/user-pool-arn}}'
       Cors:
         AllowHeaders: !Sub "'${AllowedHeaders}'"
-        AllowMethods: "'POST,GET'"
+        AllowMethods: "'POST,GET,PUT,DELETE'"
         AllowOrigin: !Sub "'${AllowedOrigins}'"
         MaxAge: "'600'"
       GatewayResponses:
@@ -229,20 +229,26 @@ Resources:
           - 'reflect-metadata'
           - 'zod'
     Properties:
-      Handler: get-user-badge.handler
+      Handler: post-user-badge-decision.handler
       Environment:
         Variables:
           POKEMON_TABLE_NAME: !Ref UserBadgeTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UserBadgeTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - states:SendTaskSuccess
+                - states:SendTaskFailure
+              Resource: '*'
       Events:
-        GetData:
+        PostDecision:
           Type: Api
           Properties:
             RestApiId: !Ref PokedexBadgeApi
             Path: /users/{userId}/badges/{badgeId}/decision
-            Method: GET
+            Method: POST
             Auth:
               Authorizer: CognitoM2MAuthorizer
               AuthorizationScopes:
@@ -340,10 +346,11 @@ Resources:
           - 'reflect-metadata'
           - 'zod'
     Properties:
-      Handler: consume-level-event.handler
+      Handler: consume-badge-event.handler
       Environment:
         Variables:
           POKEMON_TABLE_NAME: !Ref UserBadgeTable
+          BADGE_STATE_MACHINE_ARN: !Ref BadgeApprovalStateMachine
       Policies:
         - Statement:
             - Effect: Allow
@@ -352,6 +359,11 @@ Resources:
                 - dynamodb:UpdateItem
               Resource:
                 - !GetAtt UserBadgeTable.Arn
+            - Effect: Allow
+              Action:
+                - states:StartExecution
+              Resource:
+                - !Ref BadgeApprovalStateMachine
       Events:
         SQSMessage:
           Type: SQS
@@ -369,7 +381,168 @@ Resources:
       LogGroupName: !Sub /aws/lambda/${ProcessBadgeLambda}
       RetentionInDays: !Ref LambdaLogRetentionDays
 
+  RegisterBadgeDecisionLambda:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - adapters/primary/serverless/register-badge-decision.ts
+        Minify: !Ref MinifyingEnabled
+        Target: es2024
+        Sourcemap: inline
+        Format: esm
+        OutExtension:
+          - .js=.mjs
+        External:
+          - '@aws-sdk/*'
+          - '@aws-lambda-powertools/*'
+          - '@garance-retraite/*'
+          - '@aws-smithy/*'
+          - '@smithy/*'
+          - 'aws-lambda'
+          - 'inversify'
+          - 'reflect-metadata'
+          - 'zod'
+    Properties:
+      Handler: register-badge-decision.handler
+      Environment:
+        Variables:
+          POKEMON_TABLE_NAME: !Ref UserBadgeTable
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:UpdateItem
+              Resource:
+                - !GetAtt UserBadgeTable.Arn
+
+  RegisterBadgeDecisionLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${RegisterBadgeDecisionLambda}
+      RetentionInDays: !Ref LambdaLogRetentionDays
+
+  BadgeApprovalStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Type: STANDARD
+      Tracing:
+        Enabled: true
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref RegisterBadgeDecisionLambda
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserBadgeTable
+      DefinitionSubstitutions:
+        RegisterDecisionLambdaArn: !GetAtt RegisterBadgeDecisionLambda.Arn
+        UserBadgeTableName: !Ref UserBadgeTable
+      Definition:
+        Comment: "Manual badge validation workflow"
+        StartAt: RegisterDecision
+        States:
+          RegisterDecision:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke.waitForTaskToken
+            TimeoutSeconds: 300
+            Parameters:
+              FunctionName: "${RegisterDecisionLambdaArn}"
+              Payload:
+                userId.$: "$.userId"
+                badgeId.$: "$.badgeId"
+                taskToken.$: "$$.Task.Token"
+            ResultPath: "$.decisionResult"
+            Catch:
+              - ErrorEquals:
+                  - States.Timeout
+                ResultPath: "$.error"
+                Next: ExpireBadge
+            Next: EvaluateDecision
+
+          EvaluateDecision:
+            Type: Choice
+            Choices:
+              - Variable: "$.decisionResult.decision"
+                StringEquals: GRANTED
+                Next: GrantBadge
+              - Variable: "$.decisionResult.decision"
+                StringEquals: REFUSED
+                Next: RefuseBadge
+            Default: RefuseBadge
+
+          GrantBadge:
+            Type: Task
+            Resource: arn:aws:states:::dynamodb:updateItem
+            Parameters:
+              TableName: "${UserBadgeTableName}"
+              Key:
+                pk:
+                  S.$: "States.Format('USER#{}', $.userId)"
+                sk:
+                  S.$: "States.Format('BADGE#{}', $.badgeId)"
+              UpdateExpression: "SET #status = :status, #reason = :reason, updatedAt = :updatedAt REMOVE taskToken"
+              ExpressionAttributeNames:
+                "#status": "status"
+                "#reason": "reason"
+              ExpressionAttributeValues:
+                ":status":
+                  S: "GRANTED"
+                ":reason":
+                  S.$: "$.decisionResult.reason"
+                ":updatedAt":
+                  S.$: "$$.State.EnteredTime"
+            End: true
+
+          RefuseBadge:
+            Type: Task
+            Resource: arn:aws:states:::dynamodb:updateItem
+            Parameters:
+              TableName: "${UserBadgeTableName}"
+              Key:
+                pk:
+                  S.$: "States.Format('USER#{}', $.userId)"
+                sk:
+                  S.$: "States.Format('BADGE#{}', $.badgeId)"
+              UpdateExpression: "SET #status = :status, #reason = :reason, updatedAt = :updatedAt REMOVE taskToken"
+              ExpressionAttributeNames:
+                "#status": "status"
+                "#reason": "reason"
+              ExpressionAttributeValues:
+                ":status":
+                  S: "REFUSED"
+                ":reason":
+                  S.$: "$.decisionResult.reason"
+                ":updatedAt":
+                  S.$: "$$.State.EnteredTime"
+            End: true
+
+          ExpireBadge:
+            Type: Task
+            Resource: arn:aws:states:::dynamodb:updateItem
+            Parameters:
+              TableName: "${UserBadgeTableName}"
+              Key:
+                pk:
+                  S.$: "States.Format('USER#{}', $.userId)"
+                sk:
+                  S.$: "States.Format('BADGE#{}', $.badgeId)"
+              UpdateExpression: "SET #status = :status, updatedAt = :updatedAt REMOVE taskToken"
+              ExpressionAttributeNames:
+                "#status": "status"
+              ExpressionAttributeValues:
+                ":status":
+                  S: "EXPIRED"
+                ":updatedAt":
+                  S.$: "$$.State.EnteredTime"
+            End: true
+
 Outputs:
   PokedexBadgeApiExecuteUrl:
     Description: API execute URL
     Value: !Sub https://${PokedexBadgeApi}.execute-api.${AWS::Region}.amazonaws.com/${ApiStageName}
+  BadgeApprovalStateMachineArn:
+    Description: ARN de la State Machine de validation des badges
+    Value: !Ref BadgeApprovalStateMachine
+

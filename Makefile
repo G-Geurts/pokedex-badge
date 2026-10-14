@@ -12,11 +12,13 @@ stackName		?= $(pkg-name)-$(stackNameSuffix)
 domainName				?= gge.germen-collectif.fr
 apiGatewayAccessLogFormat=$(shell aws ssm get-parameter --region $(region) --name "/garance-deploy-params/ApiGatewayAccessLogsFormat" --query "Parameter.Value" --output text)
 
+mapTag?=$(shell aws ssm get-parameter --region $(region) --name "/garance-deploy-params/mapServerId" --query "Parameter.Value" --output text)
+
 allowedHeaders			?= Authorization,Content-Type,X-Amz-Date,X-Amz-Security-Token,X-Api-Key
 allowedOrigins			?= *
 apiDomainName			?=
-apiName					?= PokedexGauvainLevel API
-apiPathName				?= pokedex-gauvain-level
+apiName					?= PokedexGauvainBadge API
+apiPathName				?= pokedex-gauvain-badge
 apiStageName			?= v1
 minifyingEnabled		?= true
 # Les données d'une stack de PR sont jetables ; partout ailleurs la table survit à la stack.

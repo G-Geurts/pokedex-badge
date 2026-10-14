@@ -1,7 +1,7 @@
 {
-    "name": "garance-domain-pokedex-gauvain-event",
+    "name": "garance-domain-pokedex-gauvain-badge",
     "version": "0.1.0",
-    "description": "pokedex-gauvain event",
+    "description": "pokedex-gauvain badge",
     "private": true,
     "type": "module",
     "engines": {
@@ -39,6 +39,7 @@
         "@aws-lambda-powertools/parser": "^2",
         "@aws-lambda-powertools/tracer": "^2",
         "@aws-sdk/client-dynamodb": "^3",
+        "@aws-sdk/client-sfn": "^3.1150.0",
         "@aws-sdk/lib-dynamodb": "^3",
         "@garance-retraite/aws": "^0.15.2",
         "@garance-retraite/backend-core": "^0.15.2",
