@@ -7,7 +7,7 @@ import { apiEndpoint, cors, createLambdaHandler } from '@garance-retraite/backen
 import { type APIGatewayProxyResponse, HttpResponse } from '@garance-retraite/backend-core/http/response';
 import { BadgeDecisionModule } from '@infrastructure/ioc/badge-decision.module';
 import type { APIGatewayProxyEvent, Handler } from 'aws-lambda';
-import { inject, injectable } from 'inversify';
+import { inject } from 'inversify';
 import { z } from 'zod';
 
 const pathParametersSchema = z.object({

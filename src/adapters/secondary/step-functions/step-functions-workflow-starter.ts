@@ -5,7 +5,6 @@ import { inject, injectable } from 'inversify';
 
 @injectable()
 export class StepFunctionsWorkflowStarter implements IWorkflowStarter {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment,@typescript-eslint/no-unsafe-call
     private readonly client = new SFNClient({});
     private readonly stateMachineArn: string;
 
@@ -18,13 +17,12 @@ export class StepFunctionsWorkflowStarter implements IWorkflowStarter {
 
     public async startBadgeApprovalWorkflow(userId: string, badgeId: string): Promise<void> {
         try {
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment,@typescript-eslint/no-unsafe-call
             const command: StartExecutionCommand = new StartExecutionCommand({
                 stateMachineArn: this.stateMachineArn,
                 name: `${userId}-${badgeId}`,
                 input: JSON.stringify({ userId, badgeId })
             });
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-call,@typescript-eslint/no-unsafe-member-access
+
             await this.client.send(command);
         } catch (error: unknown) {
             if (

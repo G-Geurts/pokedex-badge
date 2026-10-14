@@ -1,6 +1,6 @@
 import { UserBadgeRecord } from '@domain/aggregates/badge.aggregate';
 import { BadgeRepositoryToken, type IBadgeRepository } from '@domain/ports/badge.repository.port';
-import { QueryHandler, type IQueryHandler } from '@garance-retraite/backend-core/cqs';
+import { type IQueryHandler, QueryHandler } from '@garance-retraite/backend-core/cqs';
 import { inject } from 'inversify';
 
 import { GetUserBadgesQuery } from './get-user-badges.query';

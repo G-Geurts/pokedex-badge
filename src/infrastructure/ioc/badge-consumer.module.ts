@@ -1,6 +1,6 @@
 import { StepFunctionsWorkflowStarter } from '@adapters/secondary/step-functions/step-functions-workflow-starter';
 import { ProcessBadgeEventHandler } from '@application/commands/process-badge-event/process-badge-event.handler';
-import { WorkflowStarterToken, type IWorkflowStarter } from '@domain/ports/workflow-starter.port';
+import { type IWorkflowStarter, WorkflowStarterToken } from '@domain/ports/workflow-starter.port';
 import { configureCqs } from '@garance-retraite/backend-core/cqs';
 import { bindBadgePersistence } from '@infrastructure/ioc/badge-persistence';
 import { ContainerModule } from 'inversify';

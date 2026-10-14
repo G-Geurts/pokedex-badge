@@ -1,7 +1,7 @@
 import type { Logger } from '@aws-lambda-powertools/logger';
 import { BadgeNotFoundError, BadgeNotPendingError } from '@domain/errors/badge.errors';
 import { BadgeRepositoryToken, type IBadgeRepository } from '@domain/ports/badge.repository.port';
-import { WorkflowResumerToken, type IWorkflowResumer } from '@domain/ports/workflow-resumer.port';
+import { type IWorkflowResumer, WorkflowResumerToken } from '@domain/ports/workflow-resumer.port';
 import { CommandHandler, type ICommandHandler } from '@garance-retraite/backend-core/cqs';
 import { LOGGER_TOKENS } from '@garance-retraite/backend-core/logger';
 import { inject } from 'inversify';
@@ -26,12 +26,14 @@ export class DecideBadgeHandler implements ICommandHandler<DecideBadgeCommand, v
         }
 
         if (badge.status !== 'PENDING' || !badge.taskToken) {
-            throw new BadgeNotPendingError(`Badge [${command.badgeId}] is not pending decision or taskToken is missing.`);
+            throw new BadgeNotPendingError(
+                `Badge [${command.badgeId}] is not pending decision or taskToken is missing.`
+            );
         }
 
         await this.workflowResumer.sendDecisionSuccess(badge.taskToken, {
             decision: command.decision,
-            reason: command.reason
+            reason: String(command.reason)
         });
 
         this.logger.info(

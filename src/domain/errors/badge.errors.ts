@@ -1,4 +1,4 @@
-import { NotFoundError, AppError } from '@garance-retraite/backend-core/errors';
+import { AppError, NotFoundError } from '@garance-retraite/backend-core/errors';
 
 export class BadgeNotFoundError extends NotFoundError {
     readonly code = 'BADGE_NOT_FOUND';
